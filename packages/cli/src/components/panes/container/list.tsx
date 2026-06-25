@@ -82,9 +82,9 @@ export default function List() {
   })
 
   function validateActiveContainer(containers: Array<Container>, activeId: string | null) {
-    if (!activeId) return containers[0]?.id
+    if (!activeId) return containers[0]?.id ?? null
     const exists = containers.find(c => c.id === activeId)
-    return exists ? activeId : containers[0]?.id
+    return exists ? activeId : containers[0]?.id ?? null
   }
 
   function validateActiveProject(containers: Array<Container>, activeProject: string | null) {

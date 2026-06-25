@@ -28,6 +28,8 @@ const Container = z.object({
   name: z.string().describe("Container name"),
   project: z.string().describe("Docker Compose project or Standalone group"),
   service: z.string().optional().describe("Docker Compose service name"),
+  composeWorkingDir: z.string().optional().describe("Docker Compose project working directory"),
+  composeConfigFiles: z.array(z.string()).describe("Docker Compose config files"),
   state: z.string().describe("Container state (e.g. running, stopped)"),
   status: z.string().describe("Container status message"),
 })

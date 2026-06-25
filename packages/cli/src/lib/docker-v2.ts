@@ -40,9 +40,17 @@ export namespace DockerV2 {
     name: string
     project: string
     service?: string
+    composeWorkingDir?: string
+    composeConfigFiles: string[]
     state: string
     status: string
     health?: DockerHealth
+  }
+
+  export type ComposeProject = {
+    project: string
+    workingDir?: string
+    configFiles: string[]
   }
 
   async function pathExists(filePath: string): Promise<boolean> {
@@ -139,6 +147,36 @@ export namespace DockerV2 {
     return undefined
   }
 
+  function parseComposeConfigFiles(value: string | undefined): string[] {
+    if (!value) return []
+    return value.split(",").map(file => file.trim()).filter(Boolean)
+  }
+
+  async function runDocker(args: string[], cwd?: string): Promise<void> {
+    const proc = Bun.spawn(["docker", ...args], {
+      cwd,
+      stdout: "ignore",
+      stderr: "ignore",
+    })
+
+    await proc.exited
+  }
+
+  function composeProjectArgs(project: ComposeProject): string[] {
+    const args = ["compose"]
+
+    if (project.workingDir) {
+      args.push("--project-directory", project.workingDir)
+    }
+
+    for (const file of project.configFiles) {
+      args.push("-f", file)
+    }
+
+    args.push("-p", project.project)
+    return args
+  }
+
   async function request(socketPath: string, path: string, method: string = "GET"): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const req = http.request({ socketPath, path, method }, (res) => {
@@ -220,11 +258,14 @@ export namespace DockerV2 {
       .map((container: DockerContainer): ContainerV2 => {
         const primaryName = container.Names[0] ?? container.Id.slice(0, 12)
         const labels = container.Labels ?? {}
+        const composeProject = labels["com.docker.compose.project"]
         return {
           id: container.Id,
           name: primaryName.replace(/^\//, ""),
-          project: labels["com.docker.compose.project"] ?? "Standalone",
+          project: composeProject ?? "Standalone",
           service: labels["com.docker.compose.service"],
+          composeWorkingDir: labels["com.docker.compose.project.working_dir"],
+          composeConfigFiles: parseComposeConfigFiles(labels["com.docker.compose.project.config_files"]),
           state: container.State,
           status: container.Status,
           health: inferHealth(container.Status),
@@ -243,5 +284,23 @@ export namespace DockerV2 {
 
   export async function startContainer(container: string): Promise<void> {
     await Bun.$`docker start ${container}`.nothrow().text()
+  }
+
+  export async function stopContainers(containers: string[]): Promise<void> {
+    if (containers.length === 0) return
+    await runDocker(["stop", ...containers])
+  }
+
+  export async function startContainers(containers: string[]): Promise<void> {
+    if (containers.length === 0) return
+    await runDocker(["start", ...containers])
+  }
+
+  export async function stopComposeProject(project: ComposeProject): Promise<void> {
+    await runDocker([...composeProjectArgs(project), "stop"], project.workingDir)
+  }
+
+  export async function upComposeProject(project: ComposeProject): Promise<void> {
+    await runDocker([...composeProjectArgs(project), "up", "-d"], project.workingDir)
   }
 }
