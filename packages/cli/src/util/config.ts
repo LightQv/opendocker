@@ -2,7 +2,7 @@ import { z } from "zod"
 
 export const KeybindsConfig = z.object({
   leader: z.string().optional().default("ctrl+x").describe("Leader key for keybind combinations"),
-  app_exit: z.string().optional().default("ctrl+c,<leader>q,q").describe("Exit the application"),
+  app_exit: z.string().optional().default("ctrl+c,<leader>q").describe("Exit the application"),
   theme_list: z.string().optional().default("<leader>t").describe("Open theme picker"),
   sidebar_toggle: z.string().optional().default("<leader>b").describe("Toggle sidebar"),
   up: z.string().optional().default("up,k").describe("Move up"),
