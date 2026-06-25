@@ -300,7 +300,16 @@ export namespace DockerV2 {
     await runDocker([...composeProjectArgs(project), "stop"], project.workingDir)
   }
 
+  export async function downComposeProject(project: ComposeProject): Promise<void> {
+    await runDocker([...composeProjectArgs(project), "down"], project.workingDir)
+  }
+
   export async function upComposeProject(project: ComposeProject): Promise<void> {
     await runDocker([...composeProjectArgs(project), "up", "-d"], project.workingDir)
+  }
+
+  export async function restartComposeProject(project: ComposeProject): Promise<void> {
+    await downComposeProject(project)
+    await upComposeProject(project)
   }
 }

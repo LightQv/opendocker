@@ -27,7 +27,12 @@ export default function ContainerKeybinds() {
       ? getCmdForProject(selectedProjectContainers())
       : getCmdForState(selected())
 
-    return cmd ? [{ label: cmd, key: "container_start_stop" }] : []
+    const items: Config = cmd ? [{ label: cmd, key: "container_start_stop" }] : []
+    if (app.containerListMode === "projects" && getComposeProject(selectedProjectContainers())) {
+      items.push({ label: "restart project", key: "project_restart" })
+    }
+
+    return items
   })
 
   createEffect(() => {
@@ -98,6 +103,13 @@ export default function ContainerKeybinds() {
     DockerV2.stopContainers(containers.map(container => container.id))
   }
 
+  function restartProject(containers: Container[]) {
+    const composeProject = getComposeProject(containers)
+    if (!composeProject) return
+
+    DockerV2.restartComposeProject(composeProject)
+  }
+
   useKeyboard(key => {
     if (dialog.stack.length > 0) return
     if (app.activePane !== "containers") return
@@ -146,6 +158,18 @@ export default function ContainerKeybinds() {
         DockerV2.stopContainer(container.name)
         return
       }
+    }
+
+    if (keybind.match("project_restart", key)) {
+      if (app.containerListMode !== "projects") return
+      const containers = selectedProjectContainers()
+      if (!getComposeProject(containers)) return
+
+      toast.show({
+        variant: "info",
+        message: "Restarting project",
+      })
+      restartProject(containers)
     }
   })
 
