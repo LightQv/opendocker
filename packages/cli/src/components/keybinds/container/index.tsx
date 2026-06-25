@@ -71,7 +71,8 @@ export default function ContainerKeybinds() {
   function getComposeProject(containers: Container[]): DockerV2.ComposeProject | null {
     const container = containers.find(container => (
       container.project !== "Standalone" &&
-      (container.composeWorkingDir || container.composeConfigFiles.length > 0)
+      container.composeWorkingDir &&
+      container.composeConfigFiles.length > 0
     ))
 
     if (!container) return null
@@ -86,28 +87,33 @@ export default function ContainerKeybinds() {
   function startProject(containers: Container[]) {
     const composeProject = getComposeProject(containers)
     if (composeProject) {
-      DockerV2.upComposeProject(composeProject)
-      return
+      return DockerV2.upComposeProject(composeProject)
+        .catch(toast.error)
     }
 
-    DockerV2.startContainers(containers.map(container => container.id))
+    return DockerV2.startContainers(containers.map(container => container.id))
+      .catch(toast.error)
   }
 
   function stopProject(containers: Container[]) {
     const composeProject = getComposeProject(containers)
     if (composeProject) {
-      DockerV2.stopComposeProject(composeProject)
-      return
+      return DockerV2.stopComposeProject(composeProject)
+        .catch(toast.error)
     }
 
-    DockerV2.stopContainers(containers.map(container => container.id))
+    return DockerV2.stopContainers(containers.map(container => container.id))
+      .catch(toast.error)
   }
 
   function restartProject(containers: Container[]) {
     const composeProject = getComposeProject(containers)
-    if (!composeProject) return
+    if (!composeProject) {
+      return
+    }
 
-    DockerV2.restartComposeProject(composeProject)
+    return DockerV2.restartComposeProject(composeProject)
+      .catch(toast.error)
   }
 
   useKeyboard(key => {
@@ -142,22 +148,22 @@ export default function ContainerKeybinds() {
       const cmd = getCmdForState(container)
 
       if (cmd === "start") {
-        toast.show({
-          variant: "info",
-          message: "Starting container",
-        })
-        DockerV2.startContainer(container.name)
-        return
-      }
+          toast.show({
+            variant: "info",
+            message: "Starting container",
+          })
+          DockerV2.startContainer(container.name).catch(toast.error)
+          return
+        }
 
       if (cmd === "stop") {
-        toast.show({
-          variant: "info",
-          message: "Stopping container",
-        })
-        DockerV2.stopContainer(container.name)
-        return
-      }
+          toast.show({
+            variant: "info",
+            message: "Stopping container",
+          })
+          DockerV2.stopContainer(container.name).catch(toast.error)
+          return
+        }
     }
 
     if (keybind.match("project_restart", key)) {

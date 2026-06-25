@@ -155,11 +155,19 @@ export namespace DockerV2 {
   async function runDocker(args: string[], cwd?: string): Promise<void> {
     const proc = Bun.spawn(["docker", ...args], {
       cwd,
-      stdout: "ignore",
-      stderr: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
     })
 
-    await proc.exited
+    const [exitCode, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stderr).text(),
+    ])
+
+    if (exitCode !== 0) {
+      const message = stderr.trim() || `docker ${args.join(" ")} failed with exit code ${exitCode}`
+      throw new Error(message)
+    }
   }
 
   function composeProjectArgs(project: ComposeProject): string[] {
@@ -279,11 +287,11 @@ export namespace DockerV2 {
   }
 
   export async function stopContainer(container: string): Promise<void> {
-    await Bun.$`docker stop ${container}`.nothrow().text()
+    await runDocker(["stop", container])
   }
 
   export async function startContainer(container: string): Promise<void> {
-    await Bun.$`docker start ${container}`.nothrow().text()
+    await runDocker(["start", container])
   }
 
   export async function stopContainers(containers: string[]): Promise<void> {
