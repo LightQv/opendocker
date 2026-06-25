@@ -32,11 +32,14 @@ export namespace DockerV2 {
     Names: string[]
     State: string
     Status: string
+    Labels?: Record<string, string> | null
   }
 
   export interface ContainerV2 {
     id: string
     name: string
+    project: string
+    service?: string
     state: string
     status: string
     health?: DockerHealth
@@ -206,6 +209,7 @@ export namespace DockerV2 {
       Names: z.array(z.string()),
       State: z.string(),
       Status: z.string(),
+      Labels: z.record(z.string(), z.string()).nullable().optional(),
     })).safeParse(raw)
 
     if (!parsed.success) {
@@ -215,9 +219,12 @@ export namespace DockerV2 {
     return parsed.data
       .map((container: DockerContainer): ContainerV2 => {
         const primaryName = container.Names[0] ?? container.Id.slice(0, 12)
+        const labels = container.Labels ?? {}
         return {
           id: container.Id,
           name: primaryName.replace(/^\//, ""),
+          project: labels["com.docker.compose.project"] ?? "Standalone",
+          service: labels["com.docker.compose.service"],
           state: container.State,
           status: container.Status,
           health: inferHealth(container.Status),
