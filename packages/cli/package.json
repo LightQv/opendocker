@@ -13,20 +13,20 @@
     "build": "bun run scripts/build.ts"
   },
   "devDependencies": {
-    "@tsconfig/bun": "latest",
-    "@types/bun": "latest"
+    "@tsconfig/bun": "1.0.10",
+    "@types/bun": "1.3.12"
   },
   "dependencies": {
-    "@opentui/core": "^0.1.102",
-    "@opentui/solid": "^0.1.102",
-    "@types/dockerode": "^3.3.47",
-    "clipboardy": "^5.0.2",
-    "dockerode": "^4.0.9",
-    "fuzzysort": "^3.1.0",
-    "opentui-spinner": "^0.0.6",
-    "remeda": "^2.33.4",
-    "solid-js": "^1.9.10",
-    "xdg-basedir": "^5.1.0",
-    "zod": "^4.3.6"
+    "@opentui/core": "0.1.102",
+    "@opentui/solid": "0.1.102",
+    "@types/dockerode": "3.3.47",
+    "clipboardy": "5.0.2",
+    "dockerode": "4.0.9",
+    "fuzzysort": "3.1.0",
+    "opentui-spinner": "0.0.6",
+    "remeda": "2.33.4",
+    "solid-js": "1.9.10",
+    "xdg-basedir": "5.1.0",
+    "zod": "4.3.6"
   }
 }
