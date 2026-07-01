@@ -26,10 +26,16 @@ type ActiveView = z.infer<typeof ActiveView>
 const Container = z.object({
   id: z.string().describe("Unique container identifier"),
   name: z.string().describe("Container name"),
+  project: z.string().describe("Docker Compose project or Standalone group"),
+  service: z.string().optional().describe("Docker Compose service name"),
+  composeWorkingDir: z.string().optional().describe("Docker Compose project working directory"),
+  composeConfigFiles: z.array(z.string()).describe("Docker Compose config files"),
   state: z.string().describe("Container state (e.g. running, stopped)"),
   status: z.string().describe("Container status message"),
 })
 export type Container = z.infer<typeof Container>
+
+export type ContainerListMode = "projects" | "containers"
 
 const Image = z.object({
   id: z.string().describe("Unique image identifier"),
@@ -75,6 +81,8 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       images: Array<Image>
       volumes: Array<Volume>
       activeContainer: string | null
+      activeContainerProject: string | null
+      containerListMode: ContainerListMode
       activeImage: string | null
       activeVolume: string | null
       rightSidebarOpen: boolean
@@ -87,6 +95,8 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       images: [],
       volumes: [],
       activeContainer: null,
+      activeContainerProject: null,
+      containerListMode: "projects",
       activeImage: null,
       activeVolume: null,
       rightSidebarOpen: false,
@@ -103,6 +113,8 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get images() { return store.images },
       get volumes() { return store.volumes },
       get activeContainer() { return store.activeContainer },
+      get activeContainerProject() { return store.activeContainerProject },
+      get containerListMode() { return store.containerListMode },
       get activeImage() { return store.activeImage },
       get activeVolume() { return store.activeVolume },
       get rightSidebarOpen() { return store.rightSidebarOpen },
@@ -118,6 +130,8 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       setImages: (v: Array<Image>) => setStore("images", v),
       setVolumes: (v: Array<Volume>) => setStore("volumes", v),
       setActiveContainer: (v: string | null) => setStore("activeContainer", v),
+      setActiveContainerProject: (v: string | null) => setStore("activeContainerProject", v),
+      setContainerListMode: (v: ContainerListMode) => setStore("containerListMode", v),
       setActiveImage: (v: string | null) => setStore("activeImage", v),
       setActiveVolume: (v: string | null) => setStore("activeVolume", v),
       toggleRightSidebar: () => setStore("rightSidebarOpen", open => !open),
