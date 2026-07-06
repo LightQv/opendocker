@@ -10,6 +10,14 @@ interface DockerImage {
   Created: number
 }
 
+interface DockerContainerUsage {
+  ImageID: string
+  Mounts?: Array<{
+    Type?: string
+    Name?: string
+  }>
+}
+
 interface DockerVolume {
   Name: string
   Driver: string
@@ -111,8 +119,31 @@ export class Docker {
     }
   }
 
+  private async getContainerUsage(): Promise<{ imageIds: Set<string>, volumeNames: Set<string> }> {
+    const containers: DockerContainerUsage[] = await this.request("/containers/json?all=1")
+    const imageIds = new Set<string>()
+    const volumeNames = new Set<string>()
+
+    for (const container of containers) {
+      if (container.ImageID) {
+        imageIds.add(container.ImageID)
+      }
+
+      for (const mount of container.Mounts ?? []) {
+        if (mount.Type === "volume" && mount.Name) {
+          volumeNames.add(mount.Name)
+        }
+      }
+    }
+
+    return { imageIds, volumeNames }
+  }
+
   public async streamImages(): Promise<Array<Image>> {
-    const images: DockerImage[] = await this.request("/images/json")
+    const [images, usage] = await Promise.all([
+      this.request("/images/json") as Promise<DockerImage[]>,
+      this.getContainerUsage(),
+    ])
 
     return images
       .map((image: DockerImage) => {
@@ -131,6 +162,7 @@ export class Docker {
           tag,
           size: `${mb} MB`,
           created,
+          used: usage.imageIds.has(image.Id),
         }
       })
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -160,7 +192,10 @@ export class Docker {
   }
 
   public async streamVolumes(): Promise<Array<Volume>> {
-    const response = await this.request("/volumes")
+    const [response, usage] = await Promise.all([
+      this.request("/volumes"),
+      this.getContainerUsage(),
+    ])
     const volumes: DockerVolume[] = response.Volumes || []
 
     return volumes
@@ -172,6 +207,7 @@ export class Docker {
         labels: volume.Labels || {},
         options: volume.Options,
         status: volume.Status,
+        used: usage.volumeNames.has(volume.Name),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }

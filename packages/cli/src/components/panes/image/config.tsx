@@ -3,7 +3,7 @@ import {
   createSignal,
   Show,
 } from "solid-js"
-import { TextAttributes } from "@opentui/core"
+import { RGBA, TextAttributes } from "@opentui/core"
 import { useApplication } from "@/context/application"
 import type { Image } from "@/context/application"
 import { Pane } from "@/ui/pane"
@@ -23,8 +23,17 @@ export default function Config() {
     { label: "Tag", value: () => image()?.tag },
     { label: "Size", value: () => image()?.size },
     { label: "Created", value: () => image()?.created },
+    {
+      label: "Usage",
+      value: () => image()?.used ? "Used" : "Unused",
+      color: () => image()?.used ? theme.success : theme.error,
+    },
     { label: "Id", value: () => image()?.id },
-  ]
+  ] satisfies Array<{
+    label: string
+    value: () => string | undefined
+    color?: () => RGBA
+  }>
 
   const maxLabelLength = Math.max(
     ...fields.map(f => f.label.length),
@@ -48,7 +57,7 @@ export default function Config() {
                 <text fg={theme.textMuted} attributes={TextAttributes.BOLD} flexShrink={0}>
                   {field.label.padEnd(maxLabelLength)}
                 </text>
-                <text fg={theme.text}>{field.value()}</text>
+                <text fg={field.color?.() ?? theme.text}>{field.value()}</text>
               </box>
             ))}
           </box>

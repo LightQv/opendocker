@@ -182,12 +182,12 @@ export default function List() {
                       backgroundColor={isActive() ? theme.success : undefined}
                       flexDirection="row"
                       gap={1}
-                      paddingLeft={1}
-                      paddingRight={1}
-                    >
-                      <text
-                        fg={
-                          isActive()
+                        paddingLeft={1}
+                        paddingRight={1}
+                      >
+                        <text
+                          fg={
+                            isActive()
                             ? theme.backgroundPanel
                             : theme.textMuted
                         }

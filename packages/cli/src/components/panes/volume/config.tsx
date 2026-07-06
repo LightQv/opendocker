@@ -4,7 +4,7 @@ import {
   For,
   Show,
 } from "solid-js"
-import { TextAttributes } from "@opentui/core"
+import { RGBA, TextAttributes } from "@opentui/core"
 import { Pane } from "@/ui/pane"
 import { useApplication } from "@/context/application"
 import { useTheme } from "@/context/theme"
@@ -13,6 +13,7 @@ import type { Volume } from "@/context/application"
 type SimpleField = {
   label: string
   value: () => string | undefined
+  color?: () => RGBA
 }
 
 type RecordField = {
@@ -33,6 +34,11 @@ export default function Config() {
     { label: "Name", value: () => volume()?.name },
     { label: "Driver", value: () => volume()?.driver },
     { label: "Scope", value: () => volume()?.scope },
+    {
+      label: "Usage",
+      value: () => volume()?.used ? "Used" : "Unused",
+      color: () => volume()?.used ? theme.success : theme.error,
+    },
     { label: "Mountpoint", value: () => volume()?.mountpoint },
   ]
 
@@ -67,7 +73,7 @@ export default function Config() {
                 <text fg={theme.textMuted} attributes={TextAttributes.BOLD} flexShrink={0}>
                   {field.label.padEnd(maxLabelLength)}
                 </text>
-                <text fg={theme.text}>{field.value()}</text>
+                <text fg={field.color?.() ?? theme.text}>{field.value()}</text>
               </box>
             )}
           </For>

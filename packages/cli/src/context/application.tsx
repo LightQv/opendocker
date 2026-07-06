@@ -44,6 +44,7 @@ const Image = z.object({
   tag: z.string().describe("Image tag"),
   size: z.string().describe("Image size"),
   created: z.string().describe("Image creation date"),
+  used: z.boolean().describe("Whether any container references this image"),
 })
 export type Image = z.infer<typeof Image>
 
@@ -55,6 +56,7 @@ const Volume = z.object({
   labels: z.record(z.string(), z.string()).describe("Volume labels"),
   options: z.record(z.string(), z.string()).nullable().describe("Volume options"),
   status: z.record(z.string(), z.string()).nullable().describe("Volume status"),
+  used: z.boolean().describe("Whether any container mounts this volume"),
 })
 export type Volume = z.infer<typeof Volume>
 
