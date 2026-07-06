@@ -73,12 +73,11 @@ function App() {
     }
 
     if (keybind.match("theme_list", event)) {
-      if (app.rightPanelFocused) return
       dialog.replace(() => <ThemesDialog title="Themes" />)
     }
 
     if (
-      (!app.rightPanelFocused && keybind.match("sidebar_toggle", event))
+      keybind.match("sidebar_toggle", event)
       || (app.rightSidebarOpen && event.name === "escape")
     ) {
       app.toggleRightSidebar()

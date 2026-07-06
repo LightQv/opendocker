@@ -27,68 +27,74 @@ export default function Keybinds() {
       flexDirection="row"
       justifyContent="space-between"
     >
-      <Switch>
-        <Match when={app.logsFocused}>
-          <ModeKeybinds items={[
-            ["tab", "back"],
-            ["/", "search"],
-            ["j/k", "move"],
-            ["gg/G", "jump"],
-            ["yy", "line"],
-            ["v", "select"],
-            ["y", "yank"],
-            ["Y", "all"],
-          ]} />
-        </Match>
-        <Match when={app.searchActive}>
-          <ModeKeybinds items={[
-            ["esc", "close"],
-            ["/", "edit"],
-            ["n/N", "match"],
-            ["j/k", "move"],
-            ["gg/G", "jump"],
-            ["yy", "line"],
-            ["v", "select"],
-            ["y", "yank"],
-            ["Y", "all"],
-          ]} />
-        </Match>
-        <Match when={app.editingSearch}>
-          <ModeKeybinds items={[
-            ["enter", "apply"],
-            ["esc", "cancel"],
-            ["tab", "logs"],
-          ]} />
-        </Match>
-        <Match when={app.filtering}>
-          <ModeKeybinds items={[
-            ["enter", "apply"],
-            ["esc", "cancel"],
-            ["tab", "logs"],
-          ]} />
-        </Match>
-        <Match when={!app.rightPanelFocused}>
-          <box flexDirection="row" gap={2}>
+      <box flexDirection="row" gap={2}>
+        <Switch>
+          <Match when={app.logsFocused}>
+            <ModeKeybinds items={[
+              ["tab", "back"],
+              ["/", "search"],
+              ["j/k", "move"],
+              ["gg/G", "jump"],
+              ["yy", "line"],
+              ["v", "select"],
+              ["y", "yank"],
+              ["Y", "all"],
+            ]} />
+          </Match>
+          <Match when={app.searchActive}>
+            <ModeKeybinds items={[
+              ["esc", "close"],
+              ["/", "edit"],
+              ["n/N", "match"],
+              ["j/k", "move"],
+              ["gg/G", "jump"],
+              ["yy", "line"],
+              ["v", "select"],
+              ["y", "yank"],
+              ["Y", "all"],
+            ]} />
+          </Match>
+          <Match when={app.editingSearch}>
+            <ModeKeybinds items={[
+              ["enter", "apply"],
+              ["esc", "cancel"],
+              ["tab", "logs"],
+            ]} />
+          </Match>
+          <Match when={app.filtering}>
+            <ModeKeybinds items={[
+              ["enter", "apply"],
+              ["esc", "cancel"],
+              ["tab", "logs"],
+            ]} />
+          </Match>
+          <Match when={!app.rightPanelFocused}>
             <Switch>
               <Match when={app.activePane === "containers"}>
                 <ContainerKeybinds />
+                <Match when={app.containerListMode === "containers" && app.activeContainer}>
+                  <box flexDirection="row" gap={1}>
+                    <text fg={theme.text}>tab</text>
+                    <text fg={theme.textMuted}>logs</text>
+                  </box>
+                </Match>
               </Match>
             </Switch>
-          </box>
-          <box flexDirection="row" gap={2}>
-            <For each={right()}>
-              {(item) => {
-                return (
-                  <box flexDirection="row" gap={1}>
-                    <text fg={theme.text}>{keybind.print(item.key)}</text>
-                    <text fg={theme.textMuted}>{item.label}</text>
-                  </box>
-                )
-              }}
-            </For>
-          </box>
-        </Match>
-      </Switch>
+          </Match>
+        </Switch>
+      </box>
+      <box flexDirection="row" gap={2}>
+        <For each={right()}>
+          {(item) => {
+            return (
+              <box flexDirection="row" gap={1}>
+                <text fg={theme.text}>{keybind.print(item.key)}</text>
+                <text fg={theme.textMuted}>{item.label}</text>
+              </box>
+            )
+          }}
+        </For>
+      </box>
     </box>
   )
 }
