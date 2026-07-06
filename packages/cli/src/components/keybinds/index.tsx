@@ -15,7 +15,6 @@ export default function Keybinds() {
 
   const right = createMemo<Config>(() => [
     { label: "themes", key: "theme_list" },
-    { label: "sidebar", key: "sidebar_toggle" },
   ])
 
   return (
