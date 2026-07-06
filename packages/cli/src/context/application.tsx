@@ -7,7 +7,7 @@ import { KeybindsConfig } from "@/util/config"
 const Pane = z.enum(["containers", "images", "volumes"])
 type Pane = z.infer<typeof Pane>
 
-const ContainerFocus = z.enum(["list", "logs", "filter", "searchEdit", "searchActive"])
+const ContainerFocus = z.enum(["list", "logs", "filter", "searchEdit", "searchActive", "shell"])
 type ContainerFocus = z.infer<typeof ContainerFocus>
 
 const ActiveView = z.discriminatedUnion("pane", [
@@ -65,6 +65,22 @@ type Config = {
   keybinds: KeybindsConfig,
 }
 
+type ShellSessionStatus = "running" | "exited" | "error"
+
+type ShellSessionState = {
+  containerId: string
+  status: ShellSessionStatus
+  output: string
+  error: string | null
+}
+
+type ShellState = {
+  activeContainerId: string | null
+  sessions: Record<string, ShellSessionState>
+}
+
+const MAX_SHELL_OUTPUT_LENGTH = 200_000
+
 function getViewForPane(pane: Pane): ActiveView {
   switch (pane) {
     case "containers":
@@ -98,6 +114,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       searchIndexes: Record<string, number>
       searchMatchCounts: Record<string, number>
       logsPaused: boolean
+      shell: ShellState
       config: Config
     }>({
       containers: [],
@@ -118,6 +135,10 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       searchIndexes: {},
       searchMatchCounts: {},
       logsPaused: false,
+      shell: {
+        activeContainerId: null,
+        sessions: {},
+      },
       config: {
         keybinds: KeybindsConfig.parse({}),
       },
@@ -140,6 +161,23 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get searchIndexes() { return store.searchIndexes },
       get searchMatchCounts() { return store.searchMatchCounts },
       get logsPaused() { return store.logsPaused },
+      get shell() { return store.shell },
+      get shellFocused() {
+        return store.activeView.pane === "containers" && store.activeView.focus === "shell"
+      },
+      get activeShellContainer() {
+        if (!store.shell.activeContainerId) return undefined
+        return store.containers.find(container => container.id === store.shell.activeContainerId)
+      },
+      get activeShellSession() {
+        const containerId = store.shell.activeContainerId
+        if (!containerId) return undefined
+        return store.shell.sessions[containerId]
+      },
+      get selectedContainerHasShellSession() {
+        if (!store.activeContainer) return false
+        return store.shell.sessions[store.activeContainer]?.status === "running"
+      },
       get filtering() {
         return store.activeView.pane === "containers" && store.activeView.focus === "filter"
       },
@@ -235,6 +273,48 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       setContainerSearchIndex: (id: string, value: number) => setStore("searchIndexes", id, value),
       setContainerSearchMatchCount: (id: string, value: number) => setStore("searchMatchCounts", id, value),
       setLogsPaused: (paused: boolean) => setStore("logsPaused", paused),
+      openContainerShell: (containerId: string) => {
+        setStore("shell", "activeContainerId", containerId)
+        if (!store.shell.sessions[containerId] || store.shell.sessions[containerId].status !== "running") {
+          setStore("shell", "sessions", containerId, {
+            containerId,
+            status: "running",
+            output: "",
+            error: null,
+          })
+        }
+        setStore("activeView", { pane: "containers", focus: "shell" })
+      },
+      markContainerShell: (containerId: string, status: ShellSessionStatus, error: string | null = null) => {
+        const existing = store.shell.sessions[containerId]
+        setStore("shell", "sessions", containerId, {
+          containerId,
+          status,
+          output: existing?.output ?? "",
+          error,
+        })
+      },
+      appendContainerShellOutput: (containerId: string, text: string) => {
+        const existing = store.shell.sessions[containerId]
+        const nextOutput = `${existing?.output ?? ""}${text}`
+        setStore("shell", "sessions", containerId, {
+          containerId,
+          status: existing?.status ?? "running",
+          output: nextOutput.slice(-MAX_SHELL_OUTPUT_LENGTH),
+          error: existing?.error ?? null,
+        })
+      },
+      detachContainerShell: () => {
+        setStore("shell", "activeContainerId", null)
+        setStore("activeView", { pane: "containers", focus: "list" })
+      },
+      closeContainerShell: (containerId: string) => {
+        setStore("shell", "sessions", containerId, undefined!)
+        if (store.shell.activeContainerId === containerId) {
+          setStore("shell", "activeContainerId", null)
+          setStore("activeView", { pane: "containers", focus: "list" })
+        }
+      },
       setConfig: (v: Config) => setStore("config", v),
     }
   },

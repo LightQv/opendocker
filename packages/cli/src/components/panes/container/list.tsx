@@ -232,7 +232,7 @@ export default function List() {
       width="100%"
       flexGrow={active() ? 1 : 0}
       flexShrink={1}
-      borderColor={() => (active() && !app.filtering && !app.searching && !app.logsFocused ? theme.border : theme.backgroundPanel)}
+      borderColor={() => (active() && !app.filtering && !app.searching && !app.logsFocused && !app.shellFocused ? theme.border : theme.backgroundPanel)}
       active={active()}
       subtitle={
         <box flexDirection="row" gap={1} alignItems="center">

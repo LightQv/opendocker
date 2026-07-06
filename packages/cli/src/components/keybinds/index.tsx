@@ -28,6 +28,14 @@ export default function Keybinds() {
     >
       <box flexDirection="row" gap={2}>
         <Switch>
+          <Match when={app.shellFocused}>
+            <ModeKeybinds items={[
+              [keybind.print("container_shell_detach"), "logs"],
+              [keybind.print("container_shell_quit"), "quit"],
+              ["ctrl+c", "interrupt"],
+              ["ctrl+d", "eof"],
+            ]} />
+          </Match>
           <Match when={app.logsFocused}>
             <ModeKeybinds items={[
               ["tab", "back"],
@@ -77,6 +85,10 @@ export default function Keybinds() {
                   <box flexDirection="row" gap={1}>
                     <text fg={theme.text}>tab</text>
                     <text fg={theme.textMuted}>logs</text>
+                  </box>
+                  <box flexDirection="row" gap={1}>
+                    <text fg={theme.text}>{keybind.print("container_shell")}</text>
+                    <text fg={theme.textMuted}>{app.selectedContainerHasShellSession ? "resume shell" : "shell"}</text>
                   </box>
                 </Match>
               </Match>

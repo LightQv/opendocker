@@ -12,6 +12,7 @@ import { ThemeProvider } from "@/context/theme"
 import { KVProvider } from "@/context/kv"
 import { DialogProvider, useDialog } from "@/ui/dialog"
 import ThemesDialog from "@/components/dialogs/themes"
+import { ContainerShell } from "@/lib/container-shell"
 
 export function tui() {
   return (
@@ -63,6 +64,10 @@ function App() {
 
     if (app.filtering) return
 
+    if (app.shellFocused && keybind.match("container_shell_quit", event)) {
+      return
+    }
+
     if (keybind.match("app_exit", event)) {
       exit()
     }
@@ -85,6 +90,7 @@ function App() {
   })
 
   function exit() {
+    ContainerShell.quitAll()
     renderer.setTerminalTitle("")
     renderer.destroy()
     process.exit(0)
