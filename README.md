@@ -47,10 +47,6 @@ brew install opendocker
 
 Yes. OpenDocker works with Docker Desktop, OrbStack, and any Docker-compatible runtime. It connects to the Docker socket to stream data, so as long as your Docker daemon is running, you're good to go.
 
-#### Can it modify my containers?
-
-Not yet. OpenDocker is currently read-only — you can view containers, stream logs, and browse images and volumes, but you can't start, stop, or remove anything. Full container management is coming soon.
-
 #### Does it work over SSH/tmux?
 
 Yes. OpenDocker supports OSC52 for clipboard operations, so copying text works even in remote SSH sessions and tmux.
@@ -62,4 +58,4 @@ Yes. OpenDocker supports OSC52 for clipboard operations, so copying text works e
 
 ---
 
-**Follow along** [X.com](https://x.com/swe_steeve)
+Based on the original [OpenDocker project](https://github.com/flat6solutions/opendocker), forked and extended from there.
