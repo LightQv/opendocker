@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, onCleanup, Switch, Match, For } from "solid-js"
-import { ScrollBoxRenderable } from "@opentui/core"
+import { Renderable, ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { useApplication } from "@/context/application"
 import { Pane } from "@/ui/pane"
@@ -66,10 +66,37 @@ export default function Logs() {
     return Math.max(0, Math.min(line, logLines().length - 1))
   }
 
-  function scrollToLine(line: number) {
+  function findChildById(root: Renderable, id: string): Renderable | undefined {
+    for (const child of root.getChildren()) {
+      if (child.id === id) return child
+      const found = findChildById(child, id)
+      if (found) return found
+    }
+  }
+
+  function scrollToLine(line: number, center = false) {
     const scrollBox = scroll()
     if (!scrollBox) return
-    scrollBox.scrollChildIntoView(`log-line-${line}`)
+    const target = findChildById(scrollBox, `log-line-${line}`)
+    if (!target) {
+      scrollBox.scrollTo(line)
+      return
+    }
+
+    const y = target.y - scrollBox.y
+    if (center) {
+      scrollBox.scrollBy(y - Math.floor(scrollBox.height / 2))
+      return
+    }
+
+    if (y >= scrollBox.height) {
+      scrollBox.scrollBy(y - scrollBox.height + 1)
+      return
+    }
+
+    if (y < 0) {
+      scrollBox.scrollBy(y)
+    }
   }
 
   function moveCursor(delta: number) {
@@ -85,11 +112,22 @@ export default function Logs() {
     const next = clampLine(line)
     setFollowingLogs(follow)
     setCursorLine(next)
-    scrollToLine(next)
     if (follow) {
       const scrollBox = scroll()
-      if (scrollBox) scrollBox.stickyScroll = true
+      if (scrollBox) {
+        scrollBox.scrollTo({ x: 0, y: scrollBox.scrollHeight })
+        scrollBox.stickyScroll = true
+      }
+      return
     }
+
+    const scrollBox = scroll()
+    if (scrollBox && next === 0) {
+      scrollBox.scrollTo(0)
+      return
+    }
+
+    scrollToLine(next)
   }
 
   function copyText(text: string, message: string) {
@@ -162,7 +200,7 @@ export default function Logs() {
         return
       }
 
-      if (key.name === "Y" || (key.name === "y" && key.shift)) {
+      if ((key.name === "y" && key.shift) || key.name === "Y") {
         key.preventDefault()
         setPendingKey(null)
         copyAllLogs()
@@ -185,7 +223,14 @@ export default function Logs() {
         return
       }
 
-      if (key.name === "g") {
+      if ((key.name === "g" && key.shift) || key.name === "G") {
+        key.preventDefault()
+        setPendingKey(null)
+        goToLine(logLines().length - 1, true)
+        return
+      }
+
+      if (key.name === "g" && !key.shift) {
         key.preventDefault()
         if (pendingKey() === "g") {
           setPendingKey(null)
@@ -197,12 +242,6 @@ export default function Logs() {
       }
 
       setPendingKey(null)
-
-      if (key.name === "G") {
-        key.preventDefault()
-        goToLine(logLines().length - 1, true)
-        return
-      }
 
       if (key.name === "j" || key.name === "down") {
         key.preventDefault()
@@ -348,7 +387,7 @@ export default function Logs() {
 
   function scrollToSearchLine(scrollBox: ScrollBoxRenderable, line: number) {
     scrollBox.stickyScroll = false
-    scrollBox.scrollChildIntoView(`log-line-${line}`)
+    scrollToLine(line, true)
     if (app.logsFocused) {
       setFollowingLogs(false)
       setCursorLine(line)

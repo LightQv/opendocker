@@ -228,7 +228,7 @@ export default function List() {
   return (
     <Pane
       title={app.containerListMode === "projects" ? "Projects" : app.activeContainerProject ?? "Containers"}
-      shortcut="1"
+      shortcut={app.logsFocused ? undefined : "1"}
       width="100%"
       flexGrow={active() ? 1 : 0}
       flexShrink={1}
