@@ -14,7 +14,8 @@ The shell should feel native to OpenDocker:
 - Shell sessions are persistent per container while OpenDocker is running.
 - Detaching from a shell returns to logs without killing the session.
 - Reopening shell for the same container resumes the existing session.
-- First shell command is `sh`.
+- Reopening an existing session reattaches current UI callbacks instead of creating a new session.
+- Default shell auto-detects `bash`, then `zsh`, then `ash`, then `sh`.
 - Later shell picker can choose from `sh`, `bash`, `ash`, `zsh`.
 
 ## Packaging Spike Result
@@ -40,6 +41,8 @@ Implementation path:
 - Keep the stream open for persistent sessions.
 - Write keyboard bytes to the stream.
 - Read shell output from the stream.
+- Feed shell output into `@xterm/headless` to maintain terminal screen state.
+- Render the xterm buffer into OpenTUI rows.
 
 ## State Model
 
@@ -60,12 +63,12 @@ Each session is keyed by container ID:
 type ShellSessionState = {
   containerId: string
   status: "running" | "exited" | "error"
-  output: string
+  version: number
   error: string | null
 }
 ```
 
-The live Docker exec stream should not be stored directly in Solid store state. Keep stream handles in a module-level/session manager map and expose serializable state through context.
+The live Docker exec stream and xterm terminal should not be stored directly in Solid store state. Keep stream/terminal handles in a module-level session manager map and expose serializable state through context.
 
 Add shell focus:
 
@@ -86,7 +89,7 @@ Add methods:
 - `detachContainerShell()`
 - `closeContainerShell(containerId)`
 - `markContainerShell(containerId, status, error)`
-- `appendContainerShellOutput(containerId, text)`
+- `bumpContainerShellVersion(containerId)`
 
 Behavior:
 
@@ -162,15 +165,17 @@ Responsibilities:
 - Reuse the existing session when reopening shell for the same container.
 - Do not close the Docker exec stream on detach.
 - Close the Docker exec stream on `<leader>q`, container stop/remove, process exit, or app exit.
-- Render output in a scrollbox.
+- Render xterm buffer rows in a scrollbox.
 - Cap scrollback.
 - Header should show the shell container name/id, not whichever container is currently selected after detaching or browsing.
 
-First command:
+Default command resolution:
 
 ```bash
-docker exec -it <containerId> sh
+docker exec <containerId> sh -lc 'for shell in bash zsh ash sh; do command -v "$shell" && exit 0; done; printf sh'
 ```
+
+Interactive shell then starts with the detected shell path/name. This avoids defaulting to minimal `sh` implementations that print arrow-key escape sequences like `^[[D` instead of moving the cursor.
 
 ## Shell Session Wrapper
 
@@ -183,19 +188,24 @@ packages/cli/src/lib/container-shell.ts
 Purpose:
 
 - Isolate Docker exec stream handling.
+- Own the headless xterm terminal instance per session.
+- Update callbacks when a detached session is resumed.
 - Keep stream/session details out of UI code.
 - Make future shell config and resize support easier.
 
 Proposed API:
 
 ```ts
-ContainerShell.create({ containerId, shell, cols, rows, onData, onExit, onError })
+ContainerShell.create({ containerId, shell, cols, rows, onRender, onExit, onError })
 ```
 
 Returns:
 
 - `write(data)`
+- `resize(cols, rows)`
+- `attach(callbacks)`
 - `quit()`
+- `snapshot(containerId)`
 
 Also maintain a session manager that can:
 
@@ -229,20 +239,22 @@ Paste support can come later if OpenTUI exposes raw pasted text.
 
 First version:
 
-- Append Docker exec output to a line buffer.
-- Render lines in a scrollbox.
-- Keep the last 5,000 to 10,000 lines.
+- Feed Docker exec output to `@xterm/headless`.
+- Render terminal buffer rows in a scrollbox.
+- Keep xterm scrollback at about 5,000 lines.
 - Stick to bottom while following output.
-- Do not strip ANSI like logs do.
+- Render a visible cursor by inverting the cursor cell.
+- Do not strip ANSI like logs do; xterm parses ANSI/VT sequences.
 
-Native-feeling shell likely needs ANSI handling. If OpenTUI text does not handle ANSI directly, add ANSI parsing as a follow-up.
+Color and text attributes can be mapped from xterm buffer cells as a follow-up. Current implementation focuses on cursor, backspace, line editing, and prompt redraw correctness.
 
 ## Resize
 
 On panel size change:
 
 - Calculate columns and rows from the shell panel/scrollbox size.
-- Send a Docker exec resize request if resize support is added.
+- Resize the xterm terminal and send Docker exec resize request.
+- Resize is idempotent; same `cols`/`rows` must not trigger render callbacks.
 
 This matters for prompt wrapping and full-screen terminal programs.
 

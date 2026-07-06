@@ -8,15 +8,19 @@ import { useDialog } from "@/ui/dialog"
 import { Pane } from "@/ui/pane"
 import { ContainerShell } from "@/lib/container-shell"
 
-const DEFAULT_SHELL = "sh"
-
 export default function Shell() {
   const app = useApplication()
   const keybind = useKeybind()
   const dialog = useDialog()
   const theme = useTheme().theme
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
-  const lines = createMemo(() => app.activeShellSession?.output.split("\n") ?? [])
+  const [terminalSize, setTerminalSize] = createSignal<{ cols: number, rows: number }>()
+  const snapshot = createMemo(() => {
+    app.activeShellSession?.version
+    const containerId = app.shell.activeContainerId
+    if (!containerId) return undefined
+    return ContainerShell.snapshot(containerId)
+  })
 
   function keyToData(key: ParsedKey): string | null {
     if (key.name === "return" || key.name === "enter") return "\n"
@@ -26,6 +30,11 @@ export default function Shell() {
     if (key.name === "down") return "\x1b[B"
     if (key.name === "right") return "\x1b[C"
     if (key.name === "left") return "\x1b[D"
+
+    if (key.ctrl && key.name.length === 1) {
+      const code = key.name.toUpperCase().charCodeAt(0) - 64
+      if (code > 0 && code < 32) return String.fromCharCode(code)
+    }
 
     const sequence = (key as ParsedKey & { sequence?: string }).sequence
     if (sequence) return sequence
@@ -65,9 +74,30 @@ export default function Shell() {
     ContainerShell.write(containerId, data)
   })
 
+  function getScrollSize() {
+    const scrollBox = scroll()
+    if (!scrollBox) return undefined
+
+    return {
+      cols: Math.max(20, scrollBox.width - 1),
+      rows: Math.max(5, scrollBox.height),
+    }
+  }
+
+  createEffect(() => {
+    const size = getScrollSize()
+    if (!size) return
+
+    const current = terminalSize()
+    if (current?.cols === size.cols && current.rows === size.rows) return
+
+    setTerminalSize(size)
+  })
+
   createEffect(() => {
     const containerId = app.shell.activeContainerId
-    if (!containerId) return
+    const size = terminalSize()
+    if (!containerId || !size) return
 
     const container = app.containers.find(item => item.id === containerId)
     if (!container) {
@@ -85,10 +115,9 @@ export default function Shell() {
 
     ContainerShell.create({
       containerId,
-      shell: DEFAULT_SHELL,
-      cols: Math.max(20, scroll()?.width ?? 80),
-      rows: Math.max(5, scroll()?.height ?? 24),
-      onData: data => app.appendContainerShellOutput(containerId, data),
+      cols: size.cols,
+      rows: size.rows,
+      onRender: () => app.bumpContainerShellVersion(containerId),
       onExit: () => app.markContainerShell(containerId, "exited", null),
       onError: error => app.markContainerShell(containerId, "error", error.message),
     }).then(() => {
@@ -99,12 +128,41 @@ export default function Shell() {
   })
 
   createEffect(() => {
-    lines()
+    snapshot()
     const scrollBox = scroll()
     if (!scrollBox) return
     scrollBox.scrollTo({ x: 0, y: scrollBox.scrollHeight })
     scrollBox.stickyScroll = true
   })
+
+  createEffect(() => {
+    const containerId = app.shell.activeContainerId
+    const size = terminalSize()
+    if (!containerId || !size) return
+
+    ContainerShell.resize(
+      containerId,
+      size.cols,
+      size.rows,
+    )
+  })
+
+  function renderLine(line: string, lineIndex: number) {
+    const current = snapshot()
+    if (!current || current.cursorY !== lineIndex) return line
+
+    const cursorX = current.cursorX
+    const padded = line.padEnd(cursorX + 1, " ")
+    const before = padded.slice(0, cursorX)
+    const cursor = padded[cursorX] || " "
+    const after = padded.slice(cursorX + 1)
+
+    return [
+      before,
+      <span style={{ fg: theme.backgroundPanel, bg: theme.text }}>{cursor}</span>,
+      after,
+    ]
+  }
 
   return (
     <Pane
@@ -113,7 +171,7 @@ export default function Shell() {
       height="100%"
       borderColor={() => app.shellFocused ? theme.border : theme.backgroundPanel}
     >
-      <box paddingLeft={1} paddingRight={1} flexGrow={1} flexShrink={1} flexDirection="column">
+      <box width="100%" paddingLeft={1} paddingRight={1} flexGrow={1} flexShrink={1} flexDirection="column">
         <Switch>
           <Match when={!app.shell.activeContainerId}>
             <text fg={theme.textMuted}>Open a container shell with {keybind.print("container_shell")}</text>
@@ -132,12 +190,13 @@ export default function Shell() {
               stickyStart="bottom"
               flexGrow={1}
               flexShrink={1}
+              width="100%"
             >
-              <box flexDirection="column">
-                <For each={lines()}>
-                  {(line) => (
-                    <box flexShrink={0}>
-                      <text fg={theme.textMuted}>{line}</text>
+              <box width="100%" flexDirection="column">
+                <For each={snapshot()?.rows ?? []}>
+                  {(line, index) => (
+                    <box width="100%" flexShrink={0}>
+                      <text width="100%" fg={theme.textMuted} wrapMode="none">{renderLine(line, index())}</text>
                     </box>
                   )}
                 </For>

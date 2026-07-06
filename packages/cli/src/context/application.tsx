@@ -70,7 +70,7 @@ type ShellSessionStatus = "running" | "exited" | "error"
 type ShellSessionState = {
   containerId: string
   status: ShellSessionStatus
-  output: string
+  version: number
   error: string | null
 }
 
@@ -78,8 +78,6 @@ type ShellState = {
   activeContainerId: string | null
   sessions: Record<string, ShellSessionState>
 }
-
-const MAX_SHELL_OUTPUT_LENGTH = 200_000
 
 function getViewForPane(pane: Pane): ActiveView {
   switch (pane) {
@@ -279,7 +277,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
           setStore("shell", "sessions", containerId, {
             containerId,
             status: "running",
-            output: "",
+            version: 0,
             error: null,
           })
         }
@@ -290,17 +288,16 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
         setStore("shell", "sessions", containerId, {
           containerId,
           status,
-          output: existing?.output ?? "",
+          version: existing?.version ?? 0,
           error,
         })
       },
-      appendContainerShellOutput: (containerId: string, text: string) => {
+      bumpContainerShellVersion: (containerId: string) => {
         const existing = store.shell.sessions[containerId]
-        const nextOutput = `${existing?.output ?? ""}${text}`
         setStore("shell", "sessions", containerId, {
           containerId,
           status: existing?.status ?? "running",
-          output: nextOutput.slice(-MAX_SHELL_OUTPUT_LENGTH),
+          version: (existing?.version ?? 0) + 1,
           error: existing?.error ?? null,
         })
       },
