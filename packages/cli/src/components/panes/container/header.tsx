@@ -34,6 +34,7 @@ export default function Header() {
     { label: "Name", value: () => selected()?.name },
     { label: "Status", value: () => selected()?.status },
     { label: "State", value: () => selected()?.state },
+    { label: "Mode", value: () => "logs" },
   ]
 
   return (
@@ -50,7 +51,7 @@ export default function Header() {
               <text fg={theme.textMuted} attributes={TextAttributes.BOLD} flexShrink={0}>
                 {header.label}
               </text>
-              <text fg={header.label === "Name" ? theme.text : highlight()}>{header.value()}</text>
+              <text fg={header.label === "Status" || header.label === "State" ? highlight() : theme.text}>{header.value()}</text>
             </box>
           )}
         </For>

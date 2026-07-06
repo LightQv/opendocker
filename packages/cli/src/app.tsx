@@ -43,8 +43,20 @@ function App() {
   const dialog = useDialog()
 
   useKeyboard(event => {
-    if (app.filtering) return
     if (dialog.stack.length > 0) return
+
+    if (
+      event.name === "tab" &&
+      app.activePane === "containers" &&
+      app.containerListMode === "containers" &&
+      app.activeContainer
+    ) {
+      event.preventDefault()
+      app.toggleContainerLogsFocus()
+      return
+    }
+
+    if (app.filtering) return
 
     if (keybind.match("app_exit", event)) {
       exit()
@@ -56,6 +68,7 @@ function App() {
     }
 
     if (keybind.match("theme_list", event)) {
+      if (app.logsFocused) return
       dialog.replace(() => <ThemesDialog title="Themes" />)
     }
 

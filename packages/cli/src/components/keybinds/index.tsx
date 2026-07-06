@@ -27,25 +27,60 @@ export default function Keybinds() {
       flexDirection="row"
       justifyContent="space-between"
     >
-      <box flexDirection="row" gap={2}>
-        <Switch>
-          <Match when={app.activePane === "containers"}>
-            <ContainerKeybinds />
-          </Match>
-        </Switch>
-      </box>
-      <box flexDirection="row" gap={2}>
-        <For each={right()}>
-          {(item) => {
-            return (
-              <box flexDirection="row" gap={1}>
-                <text fg={theme.text}>{keybind.print(item.key)}</text>
-                <text fg={theme.textMuted}>{item.label}</text>
-              </box>
-            )
-          }}
-        </For>
-      </box>
+      <Switch>
+        <Match when={app.logsFocused}>
+          <LogKeybinds />
+        </Match>
+        <Match when={!app.logsFocused}>
+          <box flexDirection="row" gap={2}>
+            <Switch>
+              <Match when={app.activePane === "containers"}>
+                <ContainerKeybinds />
+              </Match>
+            </Switch>
+          </box>
+          <box flexDirection="row" gap={2}>
+            <For each={right()}>
+              {(item) => {
+                return (
+                  <box flexDirection="row" gap={1}>
+                    <text fg={theme.text}>{keybind.print(item.key)}</text>
+                    <text fg={theme.textMuted}>{item.label}</text>
+                  </box>
+                )
+              }}
+            </For>
+          </box>
+        </Match>
+      </Switch>
+    </box>
+  )
+}
+
+function LogKeybinds() {
+  const theme = useTheme().theme
+  const items = [
+    ["tab", "back"],
+    ["j/k", "move"],
+    ["gg/G", "jump"],
+    ["/", "search"],
+    ["n/N", "match"],
+    ["yy", "line"],
+    ["v", "select"],
+    ["y", "yank"],
+    ["Y", "all"],
+  ]
+
+  return (
+    <box flexDirection="row" gap={2}>
+      <For each={items}>
+        {([keys, label]) => (
+          <box flexDirection="row" gap={1}>
+            <text fg={theme.text}>{keys}</text>
+            <text fg={theme.textMuted}>{label}</text>
+          </box>
+        )}
+      </For>
     </box>
   )
 }

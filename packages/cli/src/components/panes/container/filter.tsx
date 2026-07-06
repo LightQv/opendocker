@@ -44,6 +44,7 @@ export default function Filter() {
     if (dialog.stack.length > 0) return
     if (app.rightSidebarOpen) return
     if (app.containerListMode !== "containers") return
+    if (app.logsFocused) return
 
     if (key.name === "f") {
       if (!input?.focused) {
@@ -109,6 +110,17 @@ export default function Filter() {
   }
 
   createEffect(() => {
+    if (app.logsFocused) {
+      input?.blur()
+      return
+    }
+
+    if (input && (app.filtering || app.editingSearch) && !input.focused) {
+      const nextValue = app.editingSearch ? activeSearch() : app.activeContainer ? app.filters[app.activeContainer] || "" : ""
+      focusInput(nextValue)
+      return
+    }
+
     if (!input || !app.activeContainer || input.focused) {
       return
     }

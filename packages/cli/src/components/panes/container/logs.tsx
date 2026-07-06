@@ -5,14 +5,21 @@ import { useApplication } from "@/context/application"
 import { Pane } from "@/ui/pane"
 import { stripANSI } from "bun"
 import { tint, useTheme } from "@/context/theme"
+import { Clipboard } from "@/util/clipboard"
+import { useToast } from "@/ui/toast"
 
 export default function Logs() {
   const app = useApplication()
   const theme = useTheme().theme
+  const toast = useToast()
   const [logs, setLogs] = createSignal<string>("")
   const [tempLogs, setTempLogs] = createSignal<string>("")
   const [paused, setPaused] = createSignal<boolean>(false)
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
+  const [cursorLine, setCursorLine] = createSignal<number>(0)
+  const [selectionStart, setSelectionStart] = createSignal<number | null>(null)
+  const [pendingKey, setPendingKey] = createSignal<"g" | "y" | null>(null)
+  const [followingLogs, setFollowingLogs] = createSignal<boolean>(true)
   const activeFilter = () => {
     const activeContainer = app.activeContainer
     return activeContainer ? app.filters[activeContainer] || "" : ""
@@ -55,8 +62,172 @@ export default function Logs() {
     app.setContainerSearchIndex(activeContainer, nextIndex)
   }
 
+  function clampLine(line: number) {
+    return Math.max(0, Math.min(line, logLines().length - 1))
+  }
+
+  function scrollToLine(line: number) {
+    const scrollBox = scroll()
+    if (!scrollBox) return
+    scrollBox.scrollChildIntoView(`log-line-${line}`)
+  }
+
+  function moveCursor(delta: number) {
+    setFollowingLogs(false)
+    setCursorLine(line => {
+      const next = clampLine(line + delta)
+      scrollToLine(next)
+      return next
+    })
+  }
+
+  function goToLine(line: number, follow = false) {
+    const next = clampLine(line)
+    setFollowingLogs(follow)
+    setCursorLine(next)
+    scrollToLine(next)
+    if (follow) {
+      const scrollBox = scroll()
+      if (scrollBox) scrollBox.stickyScroll = true
+    }
+  }
+
+  function copyText(text: string, message: string) {
+    Clipboard.copy(text)
+      .then(() => toast.show({ message, variant: "info" }))
+      .catch(toast.error)
+  }
+
+  function copyCurrentLine() {
+    const line = logLines()[cursorLine()]
+    if (line === undefined) return
+    copyText(line, "Copied log line")
+  }
+
+  function copySelection() {
+    const start = selectionStart()
+    if (start === null) return
+    const from = Math.min(start, cursorLine())
+    const to = Math.max(start, cursorLine())
+    copyText(logLines().slice(from, to + 1).join("\n"), `Copied ${to - from + 1} log lines`)
+    setSelectionStart(null)
+  }
+
+  function copyAllLogs() {
+    copyText(logs(), "Copied all loaded logs")
+  }
+
   useKeyboard(key => {
     if (app.activePane !== "containers") {
+      return
+    }
+
+    if (app.logsFocused) {
+      const halfPage = Math.max(1, Math.floor((scroll()?.height ?? 10) / 2))
+
+      if (key.name === "escape") {
+        key.preventDefault()
+        if (selectionStart() !== null) {
+          setSelectionStart(null)
+          return
+        }
+        app.unfocusContainerLogs()
+        return
+      }
+
+      if (key.name === "/") {
+        key.preventDefault()
+        app.startContainerSearch()
+        return
+      }
+
+      if (activeSearch().trim().length > 0) {
+        if (key.name === "n" && !key.shift) {
+          key.preventDefault()
+          setSearchIndex(searchIndex() + 1)
+          return
+        }
+
+        if ((key.name === "n" && key.shift) || key.name === "N") {
+          key.preventDefault()
+          setSearchIndex(searchIndex() - 1)
+          return
+        }
+      }
+
+      if (key.name === "v") {
+        key.preventDefault()
+        setPendingKey(null)
+        setSelectionStart(start => start === null ? cursorLine() : null)
+        return
+      }
+
+      if (key.name === "Y" || (key.name === "y" && key.shift)) {
+        key.preventDefault()
+        setPendingKey(null)
+        copyAllLogs()
+        return
+      }
+
+      if (key.name === "y") {
+        key.preventDefault()
+        if (selectionStart() !== null) {
+          copySelection()
+          setPendingKey(null)
+          return
+        }
+        if (pendingKey() === "y") {
+          copyCurrentLine()
+          setPendingKey(null)
+          return
+        }
+        setPendingKey("y")
+        return
+      }
+
+      if (key.name === "g") {
+        key.preventDefault()
+        if (pendingKey() === "g") {
+          setPendingKey(null)
+          goToLine(0)
+          return
+        }
+        setPendingKey("g")
+        return
+      }
+
+      setPendingKey(null)
+
+      if (key.name === "G") {
+        key.preventDefault()
+        goToLine(logLines().length - 1, true)
+        return
+      }
+
+      if (key.name === "j" || key.name === "down") {
+        key.preventDefault()
+        moveCursor(1)
+        return
+      }
+
+      if (key.name === "k" || key.name === "up") {
+        key.preventDefault()
+        moveCursor(-1)
+        return
+      }
+
+      if (key.name === "d" && key.ctrl) {
+        key.preventDefault()
+        moveCursor(halfPage)
+        return
+      }
+
+      if (key.name === "u" && key.ctrl) {
+        key.preventDefault()
+        moveCursor(-halfPage)
+        return
+      }
+
       return
     }
 
@@ -111,9 +282,31 @@ export default function Logs() {
     }
   })
 
+  createEffect(() => {
+    if (!app.logsFocused) {
+      setSelectionStart(null)
+      setPendingKey(null)
+      return
+    }
+
+    if (followingLogs()) {
+      setCursorLine(clampLine(logLines().length - 1))
+    } else {
+      setCursorLine(line => clampLine(line))
+    }
+  })
+
+  function isSelectedLine(lineIndex: number) {
+    const start = selectionStart()
+    if (start === null) return false
+    const from = Math.min(start, cursorLine())
+    const to = Math.max(start, cursorLine())
+    return lineIndex >= from && lineIndex <= to
+  }
+
   function renderLogLine(line: string, lineIndex: number) {
     const query = activeSearch().trim()
-    if (!app.searching || query.length === 0) {
+    if ((!app.searching && !app.logsFocused) || query.length === 0) {
       return line
     }
 
@@ -156,6 +349,10 @@ export default function Logs() {
   function scrollToSearchLine(scrollBox: ScrollBoxRenderable, line: number) {
     scrollBox.stickyScroll = false
     scrollBox.scrollChildIntoView(`log-line-${line}`)
+    if (app.logsFocused) {
+      setFollowingLogs(false)
+      setCursorLine(line)
+    }
   }
 
   createEffect(() => {
@@ -230,7 +427,12 @@ export default function Logs() {
   })
 
   return (
-    <Pane width="100%" flexGrow={1} height="100%">
+    <Pane
+      width="100%"
+      flexGrow={1}
+      height="100%"
+      borderColor={() => app.logsFocused ? theme.border : theme.backgroundPanel}
+    >
       <box
         paddingLeft={1}
         paddingRight={1}
@@ -257,7 +459,17 @@ export default function Logs() {
               <box flexDirection="column">
                 <For each={logLines()}>
                   {(line, index) => (
-                    <box id={`log-line-${index()}`} flexShrink={0}>
+                    <box
+                      id={`log-line-${index()}`}
+                      flexShrink={0}
+                      backgroundColor={
+                        app.logsFocused && isSelectedLine(index())
+                          ? tint(theme.backgroundPanel, theme.accent, 0.25)
+                          : app.logsFocused && cursorLine() === index()
+                            ? tint(theme.backgroundPanel, theme.border, 0.35)
+                            : undefined
+                      }
+                    >
                       <text fg={theme.textMuted}>{renderLogLine(line, index())}</text>
                     </box>
                   )}

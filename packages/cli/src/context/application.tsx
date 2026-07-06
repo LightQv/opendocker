@@ -7,7 +7,8 @@ import { KeybindsConfig } from "@/util/config"
 const Pane = z.enum(["containers", "images", "volumes"])
 type Pane = z.infer<typeof Pane>
 
-const ContainerFocus = z.enum(["list", "filter", "searchEdit", "searchActive"])
+const ContainerFocus = z.enum(["list", "logs", "filter", "searchEdit", "searchActive"])
+type ContainerFocus = z.infer<typeof ContainerFocus>
 
 const ActiveView = z.discriminatedUnion("pane", [
   z.object({
@@ -88,6 +89,8 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       rightSidebarOpen: boolean
       docker: Docker | null
       activeView: ActiveView
+      previousContainerFocus: ContainerFocus
+      returnToLogsAfterSearch: boolean
       filters: Record<string, string>
       searches: Record<string, string>
       searchIndexes: Record<string, number>
@@ -105,6 +108,8 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       rightSidebarOpen: false,
       docker: null,
       activeView: { pane: "containers", focus: "list" },
+      previousContainerFocus: "list",
+      returnToLogsAfterSearch: false,
       filters: {},
       searches: {},
       searchIndexes: {},
@@ -142,6 +147,9 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get editingSearch() {
         return store.activeView.pane === "containers" && store.activeView.focus === "searchEdit"
       },
+      get logsFocused() {
+        return store.activeView.pane === "containers" && store.activeView.focus === "logs"
+      },
       get config() { return store.config },
 
       setContainers: (v: Array<Container>) => setStore("containers", v),
@@ -164,9 +172,41 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       focusVolumes: () => setStore("activeView", getViewForPane("volumes")),
       startContainerFilter: () => setStore("activeView", { pane: "containers", focus: "filter" }),
       stopContainerFilter: () => setStore("activeView", { pane: "containers", focus: "list" }),
-      startContainerSearch: () => setStore("activeView", { pane: "containers", focus: "searchEdit" }),
-      activateContainerSearch: () => setStore("activeView", { pane: "containers", focus: "searchActive" }),
-      stopContainerSearch: () => setStore("activeView", { pane: "containers", focus: "list" }),
+      startContainerSearch: () => {
+        setStore("returnToLogsAfterSearch", store.activeView.pane === "containers" && store.activeView.focus === "logs")
+        setStore("activeView", { pane: "containers", focus: "searchEdit" })
+      },
+      activateContainerSearch: () => {
+        if (store.returnToLogsAfterSearch) {
+          setStore("returnToLogsAfterSearch", false)
+          setStore("activeView", { pane: "containers", focus: "logs" })
+          return
+        }
+        setStore("activeView", { pane: "containers", focus: "searchActive" })
+      },
+      stopContainerSearch: () => {
+        setStore("returnToLogsAfterSearch", false)
+        setStore("activeView", { pane: "containers", focus: "list" })
+      },
+      focusContainerLogs: () => {
+        if (store.activeView.pane !== "containers") return
+        if (store.activeView.focus !== "logs") {
+          setStore("previousContainerFocus", store.activeView.focus)
+        }
+        setStore("activeView", { pane: "containers", focus: "logs" })
+      },
+      unfocusContainerLogs: () => {
+        setStore("activeView", { pane: "containers", focus: store.previousContainerFocus })
+      },
+      toggleContainerLogsFocus: () => {
+        if (store.activeView.pane !== "containers") return
+        if (store.activeView.focus === "logs") {
+          setStore("activeView", { pane: "containers", focus: store.previousContainerFocus })
+          return
+        }
+        setStore("previousContainerFocus", store.activeView.focus)
+        setStore("activeView", { pane: "containers", focus: "logs" })
+      },
       setContainerFilter: (id: string, value: string) => setStore("filters", id, value),
       setContainerSearch: (id: string, value: string) => setStore("searches", id, value),
       setContainerSearchIndex: (id: string, value: number) => setStore("searchIndexes", id, value),
