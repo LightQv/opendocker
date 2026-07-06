@@ -14,7 +14,6 @@ export default function Logs() {
   const toast = useToast()
   const [logs, setLogs] = createSignal<string>("")
   const [tempLogs, setTempLogs] = createSignal<string>("")
-  const [paused, setPaused] = createSignal<boolean>(false)
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
   const [cursorLine, setCursorLine] = createSignal<number>(0)
   const [selectionStart, setSelectionStart] = createSignal<number | null>(null)
@@ -155,6 +154,33 @@ export default function Logs() {
     copyText(logs(), "Copied all loaded logs")
   }
 
+  function playBufferedLogs() {
+    const bufferedLogs = tempLogs()
+    if (bufferedLogs.length > 0) {
+      setLogs(prev => prev + bufferedLogs)
+      setTempLogs("")
+    }
+
+    app.setLogsPaused(false)
+    if (followingLogs()) {
+      const scrollBox = scroll()
+      if (scrollBox) {
+        scrollBox.scrollTo({ x: 0, y: scrollBox.scrollHeight })
+        scrollBox.stickyScroll = true
+      }
+    }
+  }
+
+  function toggleLogsPaused() {
+    setPendingKey(null)
+    if (app.logsPaused) {
+      playBufferedLogs()
+      return
+    }
+
+    app.setLogsPaused(true)
+  }
+
   useKeyboard(key => {
     if (app.activePane !== "containers") {
       return
@@ -201,6 +227,12 @@ export default function Logs() {
         key.preventDefault()
         setPendingKey(null)
         setSelectionStart(start => start === null ? cursorLine() : null)
+        return
+      }
+
+      if (key.name === "p") {
+        key.preventDefault()
+        toggleLogsPaused()
         return
       }
 
@@ -292,20 +324,6 @@ export default function Logs() {
       }
     }
 
-    if (key.name === "p") {
-      setPaused(true)
-    }
-
-    if (key.name === "r") {
-      setLogs(prev => prev + tempLogs())
-      setTempLogs("")
-      const scrollBox = scroll()
-      if (scrollBox) {
-        scrollBox.scrollTo({ x: 0, y: scrollBox.scrollHeight })
-        scrollBox.stickyScroll = true
-      }
-      setPaused(false)
-    }
   })
 
   createEffect(() => {
@@ -446,7 +464,7 @@ export default function Logs() {
           const text = decoder.decode(value, { stream: true })
           const cleanText = stripANSI(text)
           if (cleanText.length > 0) {
-            if (paused()) {
+            if (app.logsPaused) {
               setTempLogs(prev => prev + cleanText)
               continue
             }
@@ -465,7 +483,7 @@ export default function Logs() {
       process.kill()
       setLogs("")
       setTempLogs("")
-      setPaused(false)
+      app.setLogsPaused(false)
     })
   })
 

@@ -95,6 +95,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       searches: Record<string, string>
       searchIndexes: Record<string, number>
       searchMatchCounts: Record<string, number>
+      logsPaused: boolean
       config: Config
     }>({
       containers: [],
@@ -114,6 +115,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       searches: {},
       searchIndexes: {},
       searchMatchCounts: {},
+      logsPaused: false,
       config: {
         keybinds: KeybindsConfig.parse({}),
       },
@@ -135,6 +137,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get searches() { return store.searches },
       get searchIndexes() { return store.searchIndexes },
       get searchMatchCounts() { return store.searchMatchCounts },
+      get logsPaused() { return store.logsPaused },
       get filtering() {
         return store.activeView.pane === "containers" && store.activeView.focus === "filter"
       },
@@ -229,6 +232,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       setContainerSearch: (id: string, value: string) => setStore("searches", id, value),
       setContainerSearchIndex: (id: string, value: number) => setStore("searchIndexes", id, value),
       setContainerSearchMatchCount: (id: string, value: number) => setStore("searchMatchCounts", id, value),
+      setLogsPaused: (paused: boolean) => setStore("logsPaused", paused),
       setConfig: (v: Config) => setStore("config", v),
     }
   },
