@@ -53,6 +53,10 @@ export namespace DockerV2 {
     configFiles: string[]
   }
 
+  export type ComposeService = ComposeProject & {
+    service: string
+  }
+
   async function pathExists(filePath: string): Promise<boolean> {
     return access(filePath).then(() => true).catch(() => false)
   }
@@ -294,6 +298,14 @@ export namespace DockerV2 {
     await runDocker(["start", container])
   }
 
+  export async function restartContainer(container: string): Promise<void> {
+    await runDocker(["restart", container])
+  }
+
+  export async function removeContainer(container: string): Promise<void> {
+    await runDocker(["rm", container])
+  }
+
   export async function stopContainers(containers: string[]): Promise<void> {
     if (containers.length === 0) return
     await runDocker(["stop", ...containers])
@@ -317,7 +329,26 @@ export namespace DockerV2 {
   }
 
   export async function restartComposeProject(project: ComposeProject): Promise<void> {
+    await runDocker([...composeProjectArgs(project), "restart"], project.workingDir)
+  }
+
+  export async function recreateComposeProject(project: ComposeProject): Promise<void> {
     await downComposeProject(project)
-    await upComposeProject(project)
+    await runDocker([...composeProjectArgs(project), "up", "-d", "--build"], project.workingDir)
+  }
+
+  export async function recreateComposeService(service: ComposeService): Promise<void> {
+    await runDocker([
+      ...composeProjectArgs(service),
+      "up",
+      "-d",
+      "--build",
+      "--force-recreate",
+      service.service,
+    ], service.workingDir)
+  }
+
+  export async function removeComposeProject(project: ComposeProject): Promise<void> {
+    await downComposeProject(project)
   }
 }

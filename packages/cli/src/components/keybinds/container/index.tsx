@@ -8,6 +8,7 @@ import type { Container } from "@/context/application"
 import { DockerV2 } from "@/lib/docker-v2"
 import { useToast } from "@/ui/toast"
 import type { Config, ConfigItem } from "@/components/keybinds"
+import { DialogConfirm } from "@/ui/dialog-confirm"
 
 export default function ContainerKeybinds() {
   const theme = useTheme().theme
@@ -28,8 +29,24 @@ export default function ContainerKeybinds() {
       : getCmdForState(selected())
 
     const items: Config = cmd ? [{ label: cmd, key: "container_start_stop" }] : []
-    if (app.containerListMode === "projects" && getComposeProject(selectedProjectContainers())) {
-      items.push({ label: "restart project", key: "project_restart" })
+
+    if (app.containerListMode === "projects") {
+      if (getComposeProject(selectedProjectContainers())) {
+        items.push(
+          { label: "restart project", key: "container_restart" },
+          { label: "recreate project", key: "container_recreate" },
+          { label: "remove project", key: "resource_remove" },
+        )
+      }
+    } else if (selected()) {
+      items.push(
+        { label: "restart", key: "container_restart" },
+        { label: "remove", key: "resource_remove" },
+      )
+
+      if (getComposeService(selected())) {
+        items.push({ label: "recreate", key: "container_recreate" })
+      }
     }
 
     return items
@@ -84,6 +101,21 @@ export default function ContainerKeybinds() {
     }
   }
 
+  function getComposeService(container: Container | undefined): DockerV2.ComposeService | null {
+    if (!container) return null
+    if (container.project === "Standalone") return null
+    if (!container.service) return null
+    if (!container.composeWorkingDir) return null
+    if (container.composeConfigFiles.length === 0) return null
+
+    return {
+      project: container.project,
+      service: container.service,
+      workingDir: container.composeWorkingDir,
+      configFiles: container.composeConfigFiles,
+    }
+  }
+
   function startProject(containers: Container[]) {
     const composeProject = getComposeProject(containers)
     if (composeProject) {
@@ -114,6 +146,65 @@ export default function ContainerKeybinds() {
 
     return DockerV2.restartComposeProject(composeProject)
       .catch(toast.error)
+  }
+
+  function recreateProject(containers: Container[]) {
+    const composeProject = getComposeProject(containers)
+    if (!composeProject) {
+      return
+    }
+
+    return DockerV2.recreateComposeProject(composeProject)
+      .catch(toast.error)
+  }
+
+  function removeProject(containers: Container[]) {
+    const composeProject = getComposeProject(containers)
+    if (!composeProject) {
+      return
+    }
+
+    return DockerV2.removeComposeProject(composeProject)
+      .catch(toast.error)
+  }
+
+  function confirmRemoveProject(containers: Container[]) {
+    const composeProject = getComposeProject(containers)
+    if (!composeProject) return
+
+    dialog.replace(() => (
+      <DialogConfirm
+        title="Remove project?"
+        message={`This will run docker compose down for ${composeProject.project} and remove ${containers.length} container${containers.length === 1 ? "" : "s"}.`}
+        confirmLabel="Remove"
+        danger
+        onConfirm={() => {
+          toast.show({
+            variant: "info",
+            message: "Removing project",
+          })
+          removeProject(containers)
+        }}
+      />
+    ))
+  }
+
+  function confirmRemoveContainer(container: Container) {
+    dialog.replace(() => (
+      <DialogConfirm
+        title="Remove container?"
+        message={`This will remove ${container.name}. Running containers must be stopped first.`}
+        confirmLabel="Remove"
+        danger
+        onConfirm={() => {
+          toast.show({
+            variant: "info",
+            message: "Removing container",
+          })
+          DockerV2.removeContainer(container.id).catch(toast.error)
+        }}
+      />
+    ))
   }
 
   useKeyboard(key => {
@@ -149,34 +240,85 @@ export default function ContainerKeybinds() {
       const cmd = getCmdForState(container)
 
       if (cmd === "start") {
-          toast.show({
-            variant: "info",
-            message: "Starting container",
-          })
-          DockerV2.startContainer(container.name).catch(toast.error)
-          return
-        }
+        toast.show({
+          variant: "info",
+          message: "Starting container",
+        })
+        DockerV2.startContainer(container.id).catch(toast.error)
+        return
+      }
 
       if (cmd === "stop") {
-          toast.show({
-            variant: "info",
-            message: "Stopping container",
-          })
-          DockerV2.stopContainer(container.name).catch(toast.error)
-          return
-        }
+        toast.show({
+          variant: "info",
+          message: "Stopping container",
+        })
+        DockerV2.stopContainer(container.id).catch(toast.error)
+        return
+      }
     }
 
-    if (keybind.match("project_restart", key)) {
-      if (app.containerListMode !== "projects") return
-      const containers = selectedProjectContainers()
-      if (!getComposeProject(containers)) return
+    if (keybind.match("container_restart", key)) {
+      if (app.containerListMode === "projects") {
+        const containers = selectedProjectContainers()
+        if (!getComposeProject(containers)) return
+
+        toast.show({
+          variant: "info",
+          message: "Restarting project",
+        })
+        restartProject(containers)
+        return
+      }
+
+      const container = selected()
+      if (!container) return
 
       toast.show({
         variant: "info",
-        message: "Restarting project",
+        message: "Restarting container",
       })
-      restartProject(containers)
+      DockerV2.restartContainer(container.id).catch(toast.error)
+      return
+    }
+
+    if (keybind.match("container_recreate", key)) {
+      if (app.containerListMode === "projects") {
+        const containers = selectedProjectContainers()
+        if (!getComposeProject(containers)) return
+
+        toast.show({
+          variant: "info",
+          message: "Recreating project",
+        })
+        recreateProject(containers)
+        return
+      }
+
+      const composeService = getComposeService(selected())
+      if (!composeService) return
+
+      toast.show({
+        variant: "info",
+        message: "Recreating container",
+      })
+      DockerV2.recreateComposeService(composeService).catch(toast.error)
+      return
+    }
+
+    if (keybind.match("resource_remove", key)) {
+      if (app.containerListMode === "projects") {
+        const containers = selectedProjectContainers()
+        if (!getComposeProject(containers)) return
+
+        confirmRemoveProject(containers)
+        return
+      }
+
+      const container = selected()
+      if (!container) return
+
+      confirmRemoveContainer(container)
     }
   })
 

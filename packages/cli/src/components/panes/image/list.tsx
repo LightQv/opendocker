@@ -17,11 +17,14 @@ import { useTheme } from "@/context/theme"
 import { Spinner } from "@/components/spinner"
 import { useKeybind } from "@/context/keybind"
 import { useDialog } from "@/ui/dialog"
+import { DialogConfirm } from "@/ui/dialog-confirm"
+import { useToast } from "@/ui/toast"
 
 export default function List() {
   const keybind = useKeybind()
   const app = useApplication()
   const dialog = useDialog()
+  const toast = useToast()
   const theme = useTheme().theme
   const [loaded, setLoaded] = createSignal<boolean>(false)
   const [active, setActive] = createSignal<boolean>(false)
@@ -67,6 +70,30 @@ export default function List() {
     return app.images.findIndex(i => i.id === app.activeImage)
   }
 
+  function selectedImage() {
+    if (!app.activeImage) return undefined
+    return app.images.find(image => image.id === app.activeImage)
+  }
+
+  function confirmRemoveImage(image: Image) {
+    const label = `${image.name}:${image.tag}`
+    dialog.replace(() => (
+      <DialogConfirm
+        title="Remove image?"
+        message={`This will remove ${label}. Docker will fail if the image is used by a container.`}
+        confirmLabel="Remove"
+        danger
+        onConfirm={() => {
+          toast.show({
+            variant: "info",
+            message: "Removing image",
+          })
+          app.docker?.removeImage(image.id).catch(toast.error)
+        }}
+      />
+    ))
+  }
+
   useKeyboard(key => {
     if (app.filtering) return
     if (app.activePane !== "images") return
@@ -102,6 +129,12 @@ export default function List() {
 
       const newSelected = app.images[index + 1]
       app.setActiveImage(newSelected.id)
+    }
+
+    if (keybind.match("resource_remove", key)) {
+      const image = selectedImage()
+      if (!image) return
+      confirmRemoveImage(image)
     }
   })
 
@@ -149,12 +182,12 @@ export default function List() {
                       backgroundColor={isActive() ? theme.success : undefined}
                       flexDirection="row"
                       gap={1}
-                      paddingLeft={1}
-                      paddingRight={1}
-                    >
-                      <text
-                        fg={
-                          isActive()
+                        paddingLeft={1}
+                        paddingRight={1}
+                      >
+                        <text
+                          fg={
+                            isActive()
                             ? theme.backgroundPanel
                             : theme.textMuted
                         }

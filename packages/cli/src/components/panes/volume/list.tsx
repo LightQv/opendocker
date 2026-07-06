@@ -17,12 +17,15 @@ import type { Volume } from '@/context/application';
 import { Spinner } from '@/components/spinner';
 import { useKeybind } from '@/context/keybind';
 import { useDialog } from '@/ui/dialog';
+import { DialogConfirm } from '@/ui/dialog-confirm';
+import { useToast } from '@/ui/toast';
 
 export default function List() {
     const keybind = useKeybind();
     const app = useApplication();
     const theme = useTheme().theme;
     const dialog = useDialog();
+    const toast = useToast();
     const [loaded, setLoaded] = createSignal<boolean>(false);
     const [active, setActive] = createSignal<boolean>(false);
     const maxDriverLength = () => Math.max(...app.volumes.map(v => v.driver.length), 0);
@@ -68,6 +71,29 @@ export default function List() {
         return app.volumes.findIndex(v => v.name === app.activeVolume);
     }
 
+    function selectedVolume() {
+        if (!app.activeVolume) return undefined;
+        return app.volumes.find(volume => volume.name === app.activeVolume);
+    }
+
+    function confirmRemoveVolume(volume: Volume) {
+        dialog.replace(() => (
+            <DialogConfirm
+                title='Remove volume?'
+                message={`This will remove ${volume.name}. Docker will fail if the volume is in use.`}
+                confirmLabel='Remove'
+                danger
+                onConfirm={() => {
+                    toast.show({
+                        variant: 'info',
+                        message: 'Removing volume',
+                    });
+                    app.docker?.removeVolume(volume.name).catch(toast.error);
+                }}
+            />
+        ));
+    }
+
     useKeyboard(key => {
         if (app.filtering) return;
         if (app.activePane !== 'volumes') return;
@@ -103,6 +129,12 @@ export default function List() {
 
             const newSelected = app.volumes[index + 1];
             app.setActiveVolume(newSelected.name);
+        }
+
+        if (keybind.match('resource_remove', key)) {
+            const volume = selectedVolume();
+            if (!volume) return;
+            confirmRemoveVolume(volume);
         }
     });
 

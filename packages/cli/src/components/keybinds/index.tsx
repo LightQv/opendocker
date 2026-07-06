@@ -15,7 +15,6 @@ export default function Keybinds() {
 
   const right = createMemo<Config>(() => [
     { label: "themes", key: "theme_list" },
-    { label: "sidebar", key: "sidebar_toggle" },
   ])
 
   return (
@@ -80,6 +79,18 @@ export default function Keybinds() {
                     <text fg={theme.textMuted}>logs</text>
                   </box>
                 </Match>
+              </Match>
+              <Match when={app.activePane === "images" && app.activeImage}>
+                <box flexDirection="row" gap={1}>
+                  <text fg={theme.text}>{keybind.print("resource_remove")}</text>
+                  <text fg={theme.textMuted}>remove</text>
+                </box>
+              </Match>
+              <Match when={app.activePane === "volumes" && app.activeVolume}>
+                <box flexDirection="row" gap={1}>
+                  <text fg={theme.text}>{keybind.print("resource_remove")}</text>
+                  <text fg={theme.textMuted}>remove</text>
+                </box>
               </Match>
             </Switch>
           </Match>
