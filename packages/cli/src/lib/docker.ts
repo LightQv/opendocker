@@ -94,6 +94,23 @@ export class Docker {
     })
   }
 
+  private async runDocker(args: string[]): Promise<void> {
+    const proc = Bun.spawn(["docker", ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    const [exitCode, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stderr).text(),
+    ])
+
+    if (exitCode !== 0) {
+      const message = stderr.trim() || `docker ${args.join(" ")} failed with exit code ${exitCode}`
+      throw new Error(message)
+    }
+  }
+
   public async streamImages(): Promise<Array<Image>> {
     const images: DockerImage[] = await this.request("/images/json")
 
@@ -138,6 +155,10 @@ export class Docker {
     return this.request(`/images/${imageId}/history`)
   }
 
+  public async removeImage(imageId: string): Promise<void> {
+    await this.runDocker(["image", "rm", imageId])
+  }
+
   public async streamVolumes(): Promise<Array<Volume>> {
     const response = await this.request("/volumes")
     const volumes: DockerVolume[] = response.Volumes || []
@@ -153,5 +174,9 @@ export class Docker {
         status: volume.Status,
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  public async removeVolume(volumeName: string): Promise<void> {
+    await this.runDocker(["volume", "rm", volumeName])
   }
 }

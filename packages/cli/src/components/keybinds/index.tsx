@@ -80,6 +80,18 @@ export default function Keybinds() {
                   </box>
                 </Match>
               </Match>
+              <Match when={app.activePane === "images" && app.activeImage}>
+                <box flexDirection="row" gap={1}>
+                  <text fg={theme.text}>{keybind.print("resource_remove")}</text>
+                  <text fg={theme.textMuted}>remove</text>
+                </box>
+              </Match>
+              <Match when={app.activePane === "volumes" && app.activeVolume}>
+                <box flexDirection="row" gap={1}>
+                  <text fg={theme.text}>{keybind.print("resource_remove")}</text>
+                  <text fg={theme.textMuted}>remove</text>
+                </box>
+              </Match>
             </Switch>
           </Match>
         </Switch>

@@ -11,7 +11,7 @@ export const KeybindsConfig = z.object({
   container_start_stop: z.string().optional().default("<leader>s").describe("Start/Stop a container"),
   container_restart: z.string().optional().default("<leader>r").describe("Restart a container or project"),
   container_recreate: z.string().optional().default("<leader>b").describe("Recreate a container or project"),
-  container_remove: z.string().optional().default("<leader>d").describe("Remove a container or project"),
+  resource_remove: z.string().optional().default("<leader>d").describe("Remove selected resource"),
   open_settings: z.string().optional().default("ctrl+p").describe("Open settings"),
   focus_containers: z.string().optional().default("1").describe("Focus containers pane"),
   focus_images: z.string().optional().default("2").describe("Focus images pane"),

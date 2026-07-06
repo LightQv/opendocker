@@ -35,13 +35,13 @@ export default function ContainerKeybinds() {
         items.push(
           { label: "restart project", key: "container_restart" },
           { label: "recreate project", key: "container_recreate" },
-          { label: "remove project", key: "container_remove" },
+          { label: "remove project", key: "resource_remove" },
         )
       }
     } else if (selected()) {
       items.push(
         { label: "restart", key: "container_restart" },
-        { label: "remove", key: "container_remove" },
+        { label: "remove", key: "resource_remove" },
       )
 
       if (getComposeService(selected())) {
@@ -306,7 +306,7 @@ export default function ContainerKeybinds() {
       return
     }
 
-    if (keybind.match("container_remove", key)) {
+    if (keybind.match("resource_remove", key)) {
       if (app.containerListMode === "projects") {
         const containers = selectedProjectContainers()
         if (!getComposeProject(containers)) return
