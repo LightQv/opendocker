@@ -131,7 +131,7 @@ export default function List() {
   }
 
   useKeyboard(key => {
-    if (app.filtering || app.searching || app.logsFocused) return
+    if (app.rightPanelFocused) return
     if (app.activePane !== "containers") return
     if (dialog.stack.length > 0) return
     if (app.rightSidebarOpen) return
@@ -228,7 +228,7 @@ export default function List() {
   return (
     <Pane
       title={app.containerListMode === "projects" ? "Projects" : app.activeContainerProject ?? "Containers"}
-      shortcut={app.logsFocused ? undefined : "1"}
+      shortcut={app.rightPanelFocused ? undefined : "1"}
       width="100%"
       flexGrow={active() ? 1 : 0}
       flexShrink={1}

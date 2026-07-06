@@ -29,9 +29,45 @@ export default function Keybinds() {
     >
       <Switch>
         <Match when={app.logsFocused}>
-          <LogKeybinds />
+          <ModeKeybinds items={[
+            ["tab", "back"],
+            ["/", "search"],
+            ["j/k", "move"],
+            ["gg/G", "jump"],
+            ["yy", "line"],
+            ["v", "select"],
+            ["y", "yank"],
+            ["Y", "all"],
+          ]} />
         </Match>
-        <Match when={!app.logsFocused}>
+        <Match when={app.searchActive}>
+          <ModeKeybinds items={[
+            ["esc", "close"],
+            ["/", "edit"],
+            ["n/N", "match"],
+            ["j/k", "move"],
+            ["gg/G", "jump"],
+            ["yy", "line"],
+            ["v", "select"],
+            ["y", "yank"],
+            ["Y", "all"],
+          ]} />
+        </Match>
+        <Match when={app.editingSearch}>
+          <ModeKeybinds items={[
+            ["enter", "apply"],
+            ["esc", "cancel"],
+            ["tab", "logs"],
+          ]} />
+        </Match>
+        <Match when={app.filtering}>
+          <ModeKeybinds items={[
+            ["enter", "apply"],
+            ["esc", "cancel"],
+            ["tab", "logs"],
+          ]} />
+        </Match>
+        <Match when={!app.rightPanelFocused}>
           <box flexDirection="row" gap={2}>
             <Switch>
               <Match when={app.activePane === "containers"}>
@@ -57,23 +93,12 @@ export default function Keybinds() {
   )
 }
 
-function LogKeybinds() {
+function ModeKeybinds(props: { items: string[][] }) {
   const theme = useTheme().theme
-  const items = [
-    ["tab", "back"],
-    ["j/k", "move"],
-    ["gg/G", "jump"],
-    ["/", "search"],
-    ["n/N", "match"],
-    ["yy", "line"],
-    ["v", "select"],
-    ["y", "yank"],
-    ["Y", "all"],
-  ]
 
   return (
     <box flexDirection="row" gap={2}>
-      <For each={items}>
+      <For each={props.items}>
         {([keys, label]) => (
           <box flexDirection="row" gap={1}>
             <text fg={theme.text}>{keys}</text>

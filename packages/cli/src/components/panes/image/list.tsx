@@ -118,7 +118,7 @@ export default function List() {
   return (
     <Pane
       title="Images"
-      shortcut={app.logsFocused ? undefined : "2"}
+      shortcut={app.rightPanelFocused ? undefined : "2"}
       width="100%"
       flexGrow={active() ? 1 : 0}
       flexShrink={1}

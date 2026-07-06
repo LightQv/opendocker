@@ -150,6 +150,18 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get logsFocused() {
         return store.activeView.pane === "containers" && store.activeView.focus === "logs"
       },
+      get searchActive() {
+        return store.activeView.pane === "containers" && store.activeView.focus === "searchActive"
+      },
+      get rightPanelFocused() {
+        return store.activeView.pane === "containers" && store.activeView.focus !== "list"
+      },
+      get logNavigationActive() {
+        return store.activeView.pane === "containers" && (
+          store.activeView.focus === "logs" ||
+          store.activeView.focus === "searchActive"
+        )
+      },
       get config() { return store.config },
 
       setContainers: (v: Array<Container>) => setStore("containers", v),
@@ -171,7 +183,10 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       focusImages: () => setStore("activeView", getViewForPane("images")),
       focusVolumes: () => setStore("activeView", getViewForPane("volumes")),
       startContainerFilter: () => setStore("activeView", { pane: "containers", focus: "filter" }),
-      stopContainerFilter: () => setStore("activeView", { pane: "containers", focus: "list" }),
+      stopContainerFilter: () => {
+        setStore("returnToLogsAfterSearch", false)
+        setStore("activeView", { pane: "containers", focus: "list" })
+      },
       startContainerSearch: () => {
         setStore("returnToLogsAfterSearch", store.activeView.pane === "containers" && store.activeView.focus === "logs")
         setStore("activeView", { pane: "containers", focus: "searchEdit" })
@@ -203,6 +218,9 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
         if (store.activeView.focus === "logs") {
           setStore("activeView", { pane: "containers", focus: store.previousContainerFocus })
           return
+        }
+        if (store.activeView.focus === "filter" || store.activeView.focus === "searchEdit") {
+          setStore("returnToLogsAfterSearch", false)
         }
         setStore("previousContainerFocus", store.activeView.focus)
         setStore("activeView", { pane: "containers", focus: "logs" })

@@ -52,6 +52,11 @@ function App() {
       app.activeContainer
     ) {
       event.preventDefault()
+      if (app.filtering || app.editingSearch) {
+        app.stopContainerFilter()
+        app.focusContainerLogs()
+        return
+      }
       app.toggleContainerLogsFocus()
       return
     }
@@ -68,12 +73,12 @@ function App() {
     }
 
     if (keybind.match("theme_list", event)) {
-      if (app.logsFocused) return
+      if (app.rightPanelFocused) return
       dialog.replace(() => <ThemesDialog title="Themes" />)
     }
 
     if (
-      keybind.match("sidebar_toggle", event)
+      (!app.rightPanelFocused && keybind.match("sidebar_toggle", event))
       || (app.rightSidebarOpen && event.name === "escape")
     ) {
       app.toggleRightSidebar()

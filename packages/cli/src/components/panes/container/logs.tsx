@@ -160,7 +160,7 @@ export default function Logs() {
       return
     }
 
-    if (app.logsFocused) {
+    if (app.logNavigationActive) {
       const halfPage = Math.max(1, Math.floor((scroll()?.height ?? 10) / 2))
 
       if (key.name === "escape") {
@@ -169,7 +169,11 @@ export default function Logs() {
           setSelectionStart(null)
           return
         }
-        app.unfocusContainerLogs()
+        if (app.logsFocused) {
+          app.unfocusContainerLogs()
+          return
+        }
+        app.stopContainerSearch()
         return
       }
 
@@ -322,7 +326,7 @@ export default function Logs() {
   })
 
   createEffect(() => {
-    if (!app.logsFocused) {
+    if (!app.logNavigationActive) {
       setSelectionStart(null)
       setPendingKey(null)
       return
@@ -345,7 +349,7 @@ export default function Logs() {
 
   function renderLogLine(line: string, lineIndex: number) {
     const query = activeSearch().trim()
-    if ((!app.searching && !app.logsFocused) || query.length === 0) {
+    if ((!app.searching && !app.logNavigationActive) || query.length === 0) {
       return line
     }
 
@@ -388,7 +392,7 @@ export default function Logs() {
   function scrollToSearchLine(scrollBox: ScrollBoxRenderable, line: number) {
     scrollBox.stickyScroll = false
     scrollToLine(line, true)
-    if (app.logsFocused) {
+    if (app.logNavigationActive) {
       setFollowingLogs(false)
       setCursorLine(line)
     }
@@ -470,7 +474,7 @@ export default function Logs() {
       width="100%"
       flexGrow={1}
       height="100%"
-      borderColor={() => app.logsFocused ? theme.border : theme.backgroundPanel}
+      borderColor={() => app.logNavigationActive ? theme.border : theme.backgroundPanel}
     >
       <box
         paddingLeft={1}
@@ -502,9 +506,9 @@ export default function Logs() {
                       id={`log-line-${index()}`}
                       flexShrink={0}
                       backgroundColor={
-                        app.logsFocused && isSelectedLine(index())
+                        app.logNavigationActive && isSelectedLine(index())
                           ? tint(theme.backgroundPanel, theme.accent, 0.25)
-                          : app.logsFocused && cursorLine() === index()
+                          : app.logNavigationActive && cursorLine() === index()
                             ? tint(theme.backgroundPanel, theme.border, 0.35)
                             : undefined
                       }
