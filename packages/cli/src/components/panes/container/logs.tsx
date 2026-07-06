@@ -153,6 +153,11 @@ export default function Logs() {
     return parts
   }
 
+  function scrollToSearchLine(scrollBox: ScrollBoxRenderable, line: number) {
+    scrollBox.stickyScroll = false
+    scrollBox.scrollChildIntoView(`log-line-${line}`)
+  }
+
   createEffect(() => {
     const matches = searchMatches()
     if (matches.length === 0) return
@@ -161,8 +166,7 @@ export default function Logs() {
     if (!scrollBox) return
 
     const line = matches[searchIndex()] ?? matches[0]
-    scrollBox.stickyScroll = false
-    scrollBox.scrollTo({ x: 0, y: line })
+    scrollToSearchLine(scrollBox, line)
   })
 
   createEffect(() => {
@@ -253,7 +257,9 @@ export default function Logs() {
               <box flexDirection="column">
                 <For each={logLines()}>
                   {(line, index) => (
-                    <text fg={theme.textMuted}>{renderLogLine(line, index())}</text>
+                    <box id={`log-line-${index()}`} flexShrink={0}>
+                      <text fg={theme.textMuted}>{renderLogLine(line, index())}</text>
+                    </box>
                   )}
                 </For>
               </box>
