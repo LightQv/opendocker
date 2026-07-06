@@ -4,7 +4,7 @@ import { useKeyboard } from "@opentui/solid"
 import { useApplication } from "@/context/application"
 import { Pane } from "@/ui/pane"
 import { stripANSI } from "bun"
-import { useTheme } from "@/context/theme"
+import { tint, useTheme } from "@/context/theme"
 
 export default function Logs() {
   const app = useApplication()
@@ -125,7 +125,7 @@ export default function Logs() {
     }
 
     const activeLine = searchMatches()[searchIndex()] === lineIndex
-    const matchBg = activeLine ? theme.warning : theme.backgroundElement
+    const matchBg = activeLine ? theme.warning : tint(theme.backgroundPanel, theme.warning, 0.25)
     const matchFg = activeLine ? theme.background : theme.text
     const parts = []
     let cursor = 0
