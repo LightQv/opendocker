@@ -1,11 +1,10 @@
-import { createEffect, createSignal, onCleanup, Switch, Match } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Switch, Match, For } from "solid-js"
 import { ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { useApplication } from "@/context/application"
 import { Pane } from "@/ui/pane"
 import { stripANSI } from "bun"
-import { SyntaxStyle } from "@opentui/core"
-import { useTheme } from "@/context/theme"
+import { tint, useTheme } from "@/context/theme"
 
 export default function Logs() {
   const app = useApplication()
@@ -14,10 +13,46 @@ export default function Logs() {
   const [tempLogs, setTempLogs] = createSignal<string>("")
   const [paused, setPaused] = createSignal<boolean>(false)
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
-  const logSyntaxStyle = SyntaxStyle.create()
   const activeFilter = () => {
     const activeContainer = app.activeContainer
     return activeContainer ? app.filters[activeContainer] || "" : ""
+  }
+  const activeSearch = () => {
+    const activeContainer = app.activeContainer
+    return activeContainer ? app.searches[activeContainer] || "" : ""
+  }
+  const searchIndex = () => {
+    const activeContainer = app.activeContainer
+    return activeContainer ? app.searchIndexes[activeContainer] || 0 : 0
+  }
+  const searchMatches = createMemo(() => {
+    const query = activeSearch().trim().toLowerCase()
+    if (!query) return []
+
+    const lines = logs().split("\n")
+    const matches: number[] = []
+    for (let index = 0; index < lines.length; index += 1) {
+      if (lines[index].toLowerCase().includes(query)) {
+        matches.push(index)
+      }
+    }
+
+    return matches
+  })
+  const logLines = createMemo(() => logs().split("\n"))
+
+  function setSearchIndex(index: number) {
+    const activeContainer = app.activeContainer
+    if (!activeContainer) return
+
+    const matches = searchMatches()
+    if (matches.length === 0) {
+      app.setContainerSearchIndex(activeContainer, 0)
+      return
+    }
+
+    const nextIndex = ((index % matches.length) + matches.length) % matches.length
+    app.setContainerSearchIndex(activeContainer, nextIndex)
   }
 
   useKeyboard(key => {
@@ -25,8 +60,22 @@ export default function Logs() {
       return
     }
 
-    if (app.filtering) {
+    if (app.filtering || app.editingSearch) {
       return
+    }
+
+    if (app.containerListMode === "containers" && app.searching && activeSearch().trim().length > 0) {
+      if (key.name === "n" && !key.shift) {
+        key.preventDefault()
+        setSearchIndex(searchIndex() + 1)
+        return
+      }
+
+      if ((key.name === "n" && key.shift) || key.name === "N") {
+        key.preventDefault()
+        setSearchIndex(searchIndex() - 1)
+        return
+      }
     }
 
     if (key.name === "p") {
@@ -43,6 +92,81 @@ export default function Logs() {
       }
       setPaused(false)
     }
+  })
+
+  createEffect(() => {
+    const activeContainer = app.activeContainer
+    if (!activeContainer) return
+
+    const matches = searchMatches()
+    app.setContainerSearchMatchCount(activeContainer, matches.length)
+
+    if (matches.length === 0) {
+      app.setContainerSearchIndex(activeContainer, 0)
+      return
+    }
+
+    if (searchIndex() >= matches.length) {
+      app.setContainerSearchIndex(activeContainer, matches.length - 1)
+    }
+  })
+
+  function renderLogLine(line: string, lineIndex: number) {
+    const query = activeSearch().trim()
+    if (!app.searching || query.length === 0) {
+      return line
+    }
+
+    const lowerLine = line.toLowerCase()
+    const lowerQuery = query.toLowerCase()
+    const firstMatch = lowerLine.indexOf(lowerQuery)
+    if (firstMatch === -1) {
+      return line
+    }
+
+    const activeLine = searchMatches()[searchIndex()] === lineIndex
+    const matchBg = activeLine ? theme.warning : tint(theme.backgroundPanel, theme.warning, 0.25)
+    const matchFg = activeLine ? theme.background : theme.text
+    const parts = []
+    let cursor = 0
+    let matchIndex = firstMatch
+
+    while (matchIndex !== -1) {
+      if (matchIndex > cursor) {
+        parts.push(line.slice(cursor, matchIndex))
+      }
+
+      parts.push(
+        <span style={{ fg: matchFg, bg: matchBg }}>
+          {line.slice(matchIndex, matchIndex + query.length)}
+        </span>
+      )
+
+      cursor = matchIndex + query.length
+      matchIndex = lowerLine.indexOf(lowerQuery, cursor)
+    }
+
+    if (cursor < line.length) {
+      parts.push(line.slice(cursor))
+    }
+
+    return parts
+  }
+
+  function scrollToSearchLine(scrollBox: ScrollBoxRenderable, line: number) {
+    scrollBox.stickyScroll = false
+    scrollBox.scrollChildIntoView(`log-line-${line}`)
+  }
+
+  createEffect(() => {
+    const matches = searchMatches()
+    if (matches.length === 0) return
+
+    const scrollBox = scroll()
+    if (!scrollBox) return
+
+    const line = matches[searchIndex()] ?? matches[0]
+    scrollToSearchLine(scrollBox, line)
   })
 
   createEffect(() => {
@@ -130,12 +254,15 @@ export default function Logs() {
               flexGrow={1}
               flexShrink={1}
             >
-              <code
-                content={logs()}
-                syntaxStyle={logSyntaxStyle}
-                streaming={false}
-                fg={theme.textMuted}
-              />
+              <box flexDirection="column">
+                <For each={logLines()}>
+                  {(line, index) => (
+                    <box id={`log-line-${index()}`} flexShrink={0}>
+                      <text fg={theme.textMuted}>{renderLogLine(line, index())}</text>
+                    </box>
+                  )}
+                </For>
+              </box>
             </scrollbox>
           </Match>
           <Match when={app.activeContainer && logs().length === 0}>

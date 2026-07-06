@@ -7,7 +7,7 @@ import { KeybindsConfig } from "@/util/config"
 const Pane = z.enum(["containers", "images", "volumes"])
 type Pane = z.infer<typeof Pane>
 
-const ContainerFocus = z.enum(["list", "filter"])
+const ContainerFocus = z.enum(["list", "filter", "searchEdit", "searchActive"])
 
 const ActiveView = z.discriminatedUnion("pane", [
   z.object({
@@ -89,6 +89,9 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       docker: Docker | null
       activeView: ActiveView
       filters: Record<string, string>
+      searches: Record<string, string>
+      searchIndexes: Record<string, number>
+      searchMatchCounts: Record<string, number>
       config: Config
     }>({
       containers: [],
@@ -103,6 +106,9 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       docker: null,
       activeView: { pane: "containers", focus: "list" },
       filters: {},
+      searches: {},
+      searchIndexes: {},
+      searchMatchCounts: {},
       config: {
         keybinds: KeybindsConfig.parse({}),
       },
@@ -121,8 +127,20 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get docker() { return store.docker },
       get activePane() { return store.activeView.pane },
       get filters() { return store.filters },
+      get searches() { return store.searches },
+      get searchIndexes() { return store.searchIndexes },
+      get searchMatchCounts() { return store.searchMatchCounts },
       get filtering() {
         return store.activeView.pane === "containers" && store.activeView.focus === "filter"
+      },
+      get searching() {
+        return store.activeView.pane === "containers" && (
+          store.activeView.focus === "searchEdit" ||
+          store.activeView.focus === "searchActive"
+        )
+      },
+      get editingSearch() {
+        return store.activeView.pane === "containers" && store.activeView.focus === "searchEdit"
       },
       get config() { return store.config },
 
@@ -131,7 +149,12 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       setVolumes: (v: Array<Volume>) => setStore("volumes", v),
       setActiveContainer: (v: string | null) => setStore("activeContainer", v),
       setActiveContainerProject: (v: string | null) => setStore("activeContainerProject", v),
-      setContainerListMode: (v: ContainerListMode) => setStore("containerListMode", v),
+      setContainerListMode: (v: ContainerListMode) => {
+        setStore("containerListMode", v)
+        if (v === "projects") {
+          setStore("activeView", { pane: "containers", focus: "list" })
+        }
+      },
       setActiveImage: (v: string | null) => setStore("activeImage", v),
       setActiveVolume: (v: string | null) => setStore("activeVolume", v),
       toggleRightSidebar: () => setStore("rightSidebarOpen", open => !open),
@@ -141,7 +164,13 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       focusVolumes: () => setStore("activeView", getViewForPane("volumes")),
       startContainerFilter: () => setStore("activeView", { pane: "containers", focus: "filter" }),
       stopContainerFilter: () => setStore("activeView", { pane: "containers", focus: "list" }),
+      startContainerSearch: () => setStore("activeView", { pane: "containers", focus: "searchEdit" }),
+      activateContainerSearch: () => setStore("activeView", { pane: "containers", focus: "searchActive" }),
+      stopContainerSearch: () => setStore("activeView", { pane: "containers", focus: "list" }),
       setContainerFilter: (id: string, value: string) => setStore("filters", id, value),
+      setContainerSearch: (id: string, value: string) => setStore("searches", id, value),
+      setContainerSearchIndex: (id: string, value: number) => setStore("searchIndexes", id, value),
+      setContainerSearchMatchCount: (id: string, value: number) => setStore("searchMatchCounts", id, value),
       setConfig: (v: Config) => setStore("config", v),
     }
   },

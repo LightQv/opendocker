@@ -131,7 +131,7 @@ export default function List() {
   }
 
   useKeyboard(key => {
-    if (app.filtering) return
+    if (app.filtering || app.searching) return
     if (app.activePane !== "containers") return
     if (dialog.stack.length > 0) return
     if (app.rightSidebarOpen) return
@@ -232,7 +232,7 @@ export default function List() {
       width="100%"
       flexGrow={active() ? 1 : 0}
       flexShrink={1}
-      borderColor={() => (active() && !app.filtering ? theme.border : theme.backgroundPanel)}
+      borderColor={() => (active() && !app.filtering && !app.searching ? theme.border : theme.backgroundPanel)}
       active={active()}
       subtitle={
         <box flexDirection="row" gap={1} alignItems="center">

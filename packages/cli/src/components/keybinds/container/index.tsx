@@ -119,6 +119,7 @@ export default function ContainerKeybinds() {
   useKeyboard(key => {
     if (dialog.stack.length > 0) return
     if (app.activePane !== "containers") return
+    if (app.filtering || app.searching) return
 
     if (keybind.match("container_start_stop", key)) {
       if (app.containerListMode === "projects") {
