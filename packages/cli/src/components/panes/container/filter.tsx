@@ -29,11 +29,12 @@ export default function Filter() {
   }
 
   const mode = () => app.filtering ? "filter" : app.editingSearch ? "searchEdit" : app.searching ? "searchActive" : "idle"
+  const inputVisible = () => app.filtering || app.editingSearch
 
   function focusInput(nextValue: string) {
     setValue(nextValue)
     setTimeout(() => {
-      if (!input) return
+      if (!input || !inputVisible()) return
       input.setText(nextValue)
       input.focus()
       input.cursorOffset = input.plainText.length
@@ -44,6 +45,7 @@ export default function Filter() {
     if (dialog.stack.length > 0) return
     if (app.rightSidebarOpen) return
     if (app.containerListMode !== "containers") return
+    if (app.logsFocused) return
 
     if (key.name === "f") {
       if (!input?.focused) {
@@ -84,10 +86,12 @@ export default function Filter() {
       app.setContainerSearch(app.activeContainer, value())
       app.setContainerSearchIndex(app.activeContainer, 0)
       input.blur()
+      input = undefined
       app.activateContainerSearch()
       return
     }
 
+    if (!inputVisible()) return
     input.focus()
     input.cursorOffset = input.plainText.length
 
@@ -97,6 +101,7 @@ export default function Filter() {
   function cancel(key: KeyEvent) {
     if (!input) return
     input.blur()
+    input = undefined
     key.preventDefault()
 
     if (app.editingSearch && activeSearch().length > 0) {
@@ -109,7 +114,17 @@ export default function Filter() {
   }
 
   createEffect(() => {
-    if (!input || !app.activeContainer || input.focused) {
+    if (app.logsFocused) {
+      return
+    }
+
+    if (input && (app.filtering || app.editingSearch) && !input.focused) {
+      const nextValue = app.editingSearch ? activeSearch() : app.activeContainer ? app.filters[app.activeContainer] || "" : ""
+      focusInput(nextValue)
+      return
+    }
+
+    if (!input || !inputVisible() || !app.activeContainer || input.focused) {
       return
     }
 
@@ -166,6 +181,7 @@ export default function Filter() {
                 ref={(r: TextareaRenderable) => {
                   input = r
                   setTimeout(() => {
+                    if (!input || !inputVisible()) return
                     input.cursorColor = theme.text
                   }, 0)
                 }}

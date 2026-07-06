@@ -7,7 +7,8 @@ import { KeybindsConfig } from "@/util/config"
 const Pane = z.enum(["containers", "images", "volumes"])
 type Pane = z.infer<typeof Pane>
 
-const ContainerFocus = z.enum(["list", "filter", "searchEdit", "searchActive"])
+const ContainerFocus = z.enum(["list", "logs", "filter", "searchEdit", "searchActive"])
+type ContainerFocus = z.infer<typeof ContainerFocus>
 
 const ActiveView = z.discriminatedUnion("pane", [
   z.object({
@@ -88,10 +89,13 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       rightSidebarOpen: boolean
       docker: Docker | null
       activeView: ActiveView
+      previousContainerFocus: ContainerFocus
+      returnToLogsAfterSearch: boolean
       filters: Record<string, string>
       searches: Record<string, string>
       searchIndexes: Record<string, number>
       searchMatchCounts: Record<string, number>
+      logsPaused: boolean
       config: Config
     }>({
       containers: [],
@@ -105,10 +109,13 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       rightSidebarOpen: false,
       docker: null,
       activeView: { pane: "containers", focus: "list" },
+      previousContainerFocus: "list",
+      returnToLogsAfterSearch: false,
       filters: {},
       searches: {},
       searchIndexes: {},
       searchMatchCounts: {},
+      logsPaused: false,
       config: {
         keybinds: KeybindsConfig.parse({}),
       },
@@ -130,6 +137,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get searches() { return store.searches },
       get searchIndexes() { return store.searchIndexes },
       get searchMatchCounts() { return store.searchMatchCounts },
+      get logsPaused() { return store.logsPaused },
       get filtering() {
         return store.activeView.pane === "containers" && store.activeView.focus === "filter"
       },
@@ -141,6 +149,21 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       },
       get editingSearch() {
         return store.activeView.pane === "containers" && store.activeView.focus === "searchEdit"
+      },
+      get logsFocused() {
+        return store.activeView.pane === "containers" && store.activeView.focus === "logs"
+      },
+      get searchActive() {
+        return store.activeView.pane === "containers" && store.activeView.focus === "searchActive"
+      },
+      get rightPanelFocused() {
+        return store.activeView.pane === "containers" && store.activeView.focus !== "list"
+      },
+      get logNavigationActive() {
+        return store.activeView.pane === "containers" && (
+          store.activeView.focus === "logs" ||
+          store.activeView.focus === "searchActive"
+        )
       },
       get config() { return store.config },
 
@@ -163,14 +186,53 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       focusImages: () => setStore("activeView", getViewForPane("images")),
       focusVolumes: () => setStore("activeView", getViewForPane("volumes")),
       startContainerFilter: () => setStore("activeView", { pane: "containers", focus: "filter" }),
-      stopContainerFilter: () => setStore("activeView", { pane: "containers", focus: "list" }),
-      startContainerSearch: () => setStore("activeView", { pane: "containers", focus: "searchEdit" }),
-      activateContainerSearch: () => setStore("activeView", { pane: "containers", focus: "searchActive" }),
-      stopContainerSearch: () => setStore("activeView", { pane: "containers", focus: "list" }),
+      stopContainerFilter: () => {
+        setStore("returnToLogsAfterSearch", false)
+        setStore("activeView", { pane: "containers", focus: "list" })
+      },
+      startContainerSearch: () => {
+        setStore("returnToLogsAfterSearch", store.activeView.pane === "containers" && store.activeView.focus === "logs")
+        setStore("activeView", { pane: "containers", focus: "searchEdit" })
+      },
+      activateContainerSearch: () => {
+        if (store.returnToLogsAfterSearch) {
+          setStore("returnToLogsAfterSearch", false)
+          setStore("activeView", { pane: "containers", focus: "logs" })
+          return
+        }
+        setStore("activeView", { pane: "containers", focus: "searchActive" })
+      },
+      stopContainerSearch: () => {
+        setStore("returnToLogsAfterSearch", false)
+        setStore("activeView", { pane: "containers", focus: "list" })
+      },
+      focusContainerLogs: () => {
+        if (store.activeView.pane !== "containers") return
+        if (store.activeView.focus !== "logs") {
+          setStore("previousContainerFocus", store.activeView.focus)
+        }
+        setStore("activeView", { pane: "containers", focus: "logs" })
+      },
+      unfocusContainerLogs: () => {
+        setStore("activeView", { pane: "containers", focus: store.previousContainerFocus })
+      },
+      toggleContainerLogsFocus: () => {
+        if (store.activeView.pane !== "containers") return
+        if (store.activeView.focus === "logs") {
+          setStore("activeView", { pane: "containers", focus: store.previousContainerFocus })
+          return
+        }
+        if (store.activeView.focus === "filter" || store.activeView.focus === "searchEdit") {
+          setStore("returnToLogsAfterSearch", false)
+        }
+        setStore("previousContainerFocus", store.activeView.focus)
+        setStore("activeView", { pane: "containers", focus: "logs" })
+      },
       setContainerFilter: (id: string, value: string) => setStore("filters", id, value),
       setContainerSearch: (id: string, value: string) => setStore("searches", id, value),
       setContainerSearchIndex: (id: string, value: number) => setStore("searchIndexes", id, value),
       setContainerSearchMatchCount: (id: string, value: number) => setStore("searchMatchCounts", id, value),
+      setLogsPaused: (paused: boolean) => setStore("logsPaused", paused),
       setConfig: (v: Config) => setStore("config", v),
     }
   },

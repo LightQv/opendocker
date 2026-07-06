@@ -29,8 +29,59 @@ export default function Keybinds() {
     >
       <box flexDirection="row" gap={2}>
         <Switch>
-          <Match when={app.activePane === "containers"}>
-            <ContainerKeybinds />
+          <Match when={app.logsFocused}>
+            <ModeKeybinds items={[
+              ["tab", "back"],
+              ["/", "search"],
+              ["j/k", "move"],
+              ["gg/G", "jump"],
+              ["p", app.logsPaused ? "play" : "pause"],
+              ["yy", "line"],
+              ["v", "select"],
+              ["y", "yank"],
+              ["Y", "all"],
+            ]} />
+          </Match>
+          <Match when={app.searchActive}>
+            <ModeKeybinds items={[
+              ["esc", "close"],
+              ["/", "edit"],
+              ["n/N", "match"],
+              ["j/k", "move"],
+              ["gg/G", "jump"],
+              ["p", app.logsPaused ? "play" : "pause"],
+              ["yy", "line"],
+              ["v", "select"],
+              ["y", "yank"],
+              ["Y", "all"],
+            ]} />
+          </Match>
+          <Match when={app.editingSearch}>
+            <ModeKeybinds items={[
+              ["enter", "apply"],
+              ["esc", "cancel"],
+              ["tab", "logs"],
+            ]} />
+          </Match>
+          <Match when={app.filtering}>
+            <ModeKeybinds items={[
+              ["enter", "apply"],
+              ["esc", "cancel"],
+              ["tab", "logs"],
+            ]} />
+          </Match>
+          <Match when={!app.rightPanelFocused}>
+            <Switch>
+              <Match when={app.activePane === "containers"}>
+                <ContainerKeybinds />
+                <Match when={app.containerListMode === "containers" && app.activeContainer}>
+                  <box flexDirection="row" gap={1}>
+                    <text fg={theme.text}>tab</text>
+                    <text fg={theme.textMuted}>logs</text>
+                  </box>
+                </Match>
+              </Match>
+            </Switch>
           </Match>
         </Switch>
       </box>
@@ -46,6 +97,23 @@ export default function Keybinds() {
           }}
         </For>
       </box>
+    </box>
+  )
+}
+
+function ModeKeybinds(props: { items: string[][] }) {
+  const theme = useTheme().theme
+
+  return (
+    <box flexDirection="row" gap={2}>
+      <For each={props.items}>
+        {([keys, label]) => (
+          <box flexDirection="row" gap={1}>
+            <text fg={theme.text}>{keys}</text>
+            <text fg={theme.textMuted}>{label}</text>
+          </box>
+        )}
+      </For>
     </box>
   )
 }

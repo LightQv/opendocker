@@ -43,8 +43,25 @@ function App() {
   const dialog = useDialog()
 
   useKeyboard(event => {
-    if (app.filtering) return
     if (dialog.stack.length > 0) return
+
+    if (
+      event.name === "tab" &&
+      app.activePane === "containers" &&
+      app.containerListMode === "containers" &&
+      app.activeContainer
+    ) {
+      event.preventDefault()
+      if (app.filtering || app.editingSearch) {
+        app.stopContainerFilter()
+        app.focusContainerLogs()
+        return
+      }
+      app.toggleContainerLogsFocus()
+      return
+    }
+
+    if (app.filtering) return
 
     if (keybind.match("app_exit", event)) {
       exit()
