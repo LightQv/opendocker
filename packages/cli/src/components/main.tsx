@@ -15,7 +15,9 @@ export default function Main() {
       <Show when={app.activePane === "containers"}>
         <ContainerHeader />
         <ContainerLogs />
-        <ContainerFilter />
+        <Show when={app.containerListMode === "containers"}>
+          <ContainerFilter />
+        </Show>
       </Show>
       <Show when={app.activePane === "images"}>
         <ImageConfig />
