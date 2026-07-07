@@ -182,7 +182,7 @@ export default function RightSidebar(props: { overlay?: boolean }) {
               <StatLine label="RAM" value={formatMemory(selectedStats())} />
             </box>
           </Show>
-          <Show when={selectedProjectContainers().length > 0}>
+          <Show when={app.containerListMode === "projects" && selectedProjectContainers().length > 0}>
             <box flexDirection="column" gap={1}>
               <text fg={theme.text}><b>Containers</b></text>
               <For each={selectedProjectContainers()}>
