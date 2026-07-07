@@ -12,13 +12,16 @@ import {
   onCleanup,
 } from "solid-js"
 import { useApplication } from "@/context/application"
-import type { Container } from "@/context/application"
+import type { Container, ContainerStats } from "@/context/application"
 import { Pane } from "@/ui/pane"
 import { getColorForContainerState } from "@/util/colors"
 import { useTheme } from "@/context/theme"
 import { useKeybind } from "@/context/keybind"
 import { DockerV2 } from "@/lib/docker-v2"
 import { useDialog } from "@/ui/dialog"
+
+const CONTAINER_REFRESH_MS = 1000
+const STATS_REFRESH_MS = 2000
 
 export default function List() {
   const keybind = useKeybind()
@@ -51,11 +54,12 @@ export default function List() {
   })
   const maxStateLength = () => Math.max(...selectedProjectContainers().map(c => c.state.length), 0)
   const theme = useTheme().theme
-  let refreshing = false
+  let refreshingContainers = false
+  let refreshingStats = false
 
-  async function setup() {
-    if (refreshing) return
-    refreshing = true
+  async function refreshContainers() {
+    if (refreshingContainers) return
+    refreshingContainers = true
 
     try {
       const c = await DockerV2.getContainers()
@@ -73,24 +77,60 @@ export default function List() {
         app.setActiveContainer(activeId)
       }
 
-      const runningContainerIds = containers
-        .filter(container => container.state === "running")
-        .map(container => container.id)
-      app.setContainerStats(await DockerV2.getContainerStats(runningContainerIds))
+      pruneContainerStats(containers)
     } finally {
-      refreshing = false
+      refreshingContainers = false
+    }
+  }
+
+  function getRunningContainerIds(containers = selectedProjectContainers()) {
+    return containers
+      .filter(container => container.state === "running")
+      .map(container => container.id)
+  }
+
+  function pruneContainerStats(containers = selectedProjectContainers()) {
+    const runningContainerIds = new Set(getRunningContainerIds(containers))
+    app.setContainerStats(filterStats(app.containerStats, runningContainerIds))
+  }
+
+  function filterStats(stats: Record<string, ContainerStats>, containerIds: Set<string>) {
+    const result: Record<string, ContainerStats> = {}
+
+    for (const [containerId, value] of Object.entries(stats)) {
+      if (!containerIds.has(containerId)) continue
+      result[containerId] = value
+    }
+
+    return result
+  }
+
+  async function refreshStats() {
+    if (refreshingStats) return
+    refreshingStats = true
+
+    try {
+      const stats = await DockerV2.getContainerStats(getRunningContainerIds())
+      const runningContainerIds = new Set(getRunningContainerIds())
+      app.setContainerStats(filterStats(stats, runningContainerIds))
+    } finally {
+      refreshingStats = false
     }
   }
 
   onMount(() => {
-    setup()
+    refreshContainers().then(() => refreshStats())
 
-    const intervalId = setInterval(() => {
-      setup()
-    }, 1000)
+    const containerIntervalId = setInterval(() => {
+      refreshContainers()
+    }, CONTAINER_REFRESH_MS)
+    const statsIntervalId = setInterval(() => {
+      refreshStats()
+    }, STATS_REFRESH_MS)
 
     onCleanup(() => {
-      clearInterval(intervalId)
+      clearInterval(containerIntervalId)
+      clearInterval(statsIntervalId)
     })
   })
 
@@ -126,6 +166,7 @@ export default function List() {
     app.setActiveContainerProject(project)
     const container = app.containers.find(container => container.project === project)
     app.setActiveContainer(container?.id ?? null)
+    refreshStats()
   }
 
   function enterProject() {

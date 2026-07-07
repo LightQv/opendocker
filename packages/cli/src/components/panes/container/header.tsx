@@ -1,53 +1,31 @@
 import {
   createMemo,
-  createEffect,
-  createSignal,
   For,
 } from "solid-js"
 import { useApplication } from "@/context/application"
-import type { Container } from "@/context/application"
 import { Pane } from "@/ui/pane"
 import { getColorForContainerState } from "@/util/colors"
 import { TextAttributes } from "@opentui/core"
 import { useTheme } from "@/context/theme"
 import { formatContainerWebPort, getContainerWebPort } from "@/util/container"
-
-type StatsSummary = {
-  cpuPercent: number
-  memoryPercent: number
-  hasStats: boolean
-}
+import { formatStatsPercent, summarizeContainerStats, summarizeProjectStats } from "@/util/container-stats"
 
 type HeaderField = {
   label: () => string
   value: () => string | undefined | null
 }
 
-const EMPTY_STATS: StatsSummary = {
-  cpuPercent: 0,
-  memoryPercent: 0,
-  hasStats: false,
-}
-
 export default function Header() {
   const theme = useTheme().theme
   const app = useApplication()
-  const [selected, setSelected] = createSignal<Container>()
+  const selected = createMemo(() => {
+    if (app.shellFocused) return app.activeShellContainer
+    return app.containers.find(container => container.id === app.activeContainer)
+  })
   const selectedProjectContainers = createMemo(() => {
     const project = app.activeContainerProject
     if (!project) return []
     return app.containers.filter(container => container.project === project)
-  })
-
-  createEffect(() => {
-    if (app.shellFocused) {
-      setSelected(app.activeShellContainer)
-      return
-    }
-
-    setSelected(
-      app.containers.find((c: Container) => c.id === app.activeContainer)
-    )
   })
 
   const projectRunning = createMemo(() => {
@@ -68,43 +46,13 @@ export default function Header() {
     return `${projectRunning()}/${containers.length} running`
   })
 
-  const stats = createMemo<StatsSummary>(() => {
+  const stats = createMemo(() => {
     if (app.containerListMode !== "projects") {
       const container = selected()
-      if (!container) return EMPTY_STATS
-
-      const stats = app.containerStats[container.id]
-      return stats
-        ? {
-          cpuPercent: stats.cpuPercent,
-          memoryPercent: stats.memoryPercent,
-          hasStats: true,
-        }
-        : EMPTY_STATS
+      return summarizeContainerStats(container ? app.containerStats[container.id] : undefined)
     }
 
-    let cpuPercent = 0
-    let memoryUsage = 0
-    let memoryLimit = 0
-    let statCount = 0
-
-    for (const container of selectedProjectContainers()) {
-      const stats = app.containerStats[container.id]
-      if (!stats) continue
-
-      cpuPercent += stats.cpuPercent
-      memoryUsage += stats.memoryUsage
-      memoryLimit += stats.memoryLimit
-      statCount += 1
-    }
-
-    if (statCount === 0) return EMPTY_STATS
-
-    return {
-      cpuPercent,
-      memoryPercent: memoryLimit > 0 ? (memoryUsage / memoryLimit) * 100 : 0,
-      hasStats: true,
-    }
+    return summarizeProjectStats(selectedProjectContainers(), app.containerStats)
   })
 
   const highlight = createMemo(() => {
@@ -123,11 +71,6 @@ export default function Header() {
     )
   })
 
-  function formatPercent(value: number, hasStats: boolean) {
-    if (!hasStats) return "-"
-    return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)}%`
-  }
-
   const fields = createMemo<HeaderField[]>(() => {
     const result: HeaderField[] = [
       {
@@ -142,8 +85,8 @@ export default function Header() {
         label: () => "State",
         value: () => app.containerListMode === "projects" ? projectState() : selected()?.state,
       },
-      { label: () => "CPU", value: () => formatPercent(stats().cpuPercent, stats().hasStats) },
-      { label: () => "RAM", value: () => formatPercent(stats().memoryPercent, stats().hasStats) },
+      { label: () => "CPU", value: () => formatStatsPercent(stats().cpuPercent, stats().hasStats) },
+      { label: () => "RAM", value: () => formatStatsPercent(stats().memoryPercent, stats().hasStats) },
       { label: () => "Mode", value: () => app.shellFocused ? "shell" : "logs" },
     ]
     const webPort = app.containerListMode === "containers"

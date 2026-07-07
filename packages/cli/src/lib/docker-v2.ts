@@ -7,6 +7,7 @@ import { z } from "zod"
 export namespace DockerV2 {
   const DEFAULT_SOCKET = "/var/run/docker.sock"
   const REQUEST_TIMEOUT_MS = 2_000
+  const STATS_CONCURRENCY = 4
   const FALLBACK_LOCAL_SOCKETS = [
     "/var/run/docker.sock",
     join(homedir(), ".docker", "run", "docker.sock"),
@@ -47,7 +48,7 @@ export namespace DockerV2 {
     cpu_usage: z.object({
       total_usage: z.number().optional().default(0),
       percpu_usage: z.array(z.number()).optional(),
-    }).passthrough().optional().default({}),
+    }).passthrough().optional().default({ total_usage: 0 }),
     system_cpu_usage: z.number().optional().default(0),
     online_cpus: z.number().optional(),
   }).passthrough()
@@ -430,17 +431,22 @@ export namespace DockerV2 {
     if (containerIds.length === 0) return {}
 
     const socketPath = await getSocket()
-    const stats = await Promise.all(containerIds.map(async (id) => {
-      const raw = await request(socketPath, `/containers/${encodeURIComponent(id)}/stats?stream=false`)
-        .catch(() => undefined)
-      const parsed = DockerStatsSchema.safeParse(raw)
+    const stats: Array<ContainerStats | undefined> = []
 
-      if (!parsed.success) {
-        return undefined
-      }
+    for (let index = 0; index < containerIds.length; index += STATS_CONCURRENCY) {
+      const batch = containerIds.slice(index, index + STATS_CONCURRENCY)
+      stats.push(...await Promise.all(batch.map(async (id) => {
+        const raw = await request(socketPath, `/containers/${encodeURIComponent(id)}/stats?stream=false`)
+          .catch(() => undefined)
+        const parsed = DockerStatsSchema.safeParse(raw)
 
-      return calculateContainerStats(id, parsed.data)
-    }))
+        if (!parsed.success) {
+          return undefined
+        }
+
+        return calculateContainerStats(id, parsed.data)
+      })))
+    }
     const result: Record<string, ContainerStats> = {}
 
     for (const item of stats) {

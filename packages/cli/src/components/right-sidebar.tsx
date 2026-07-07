@@ -1,25 +1,10 @@
 import { $ } from "bun"
 import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { useApplication } from "@/context/application"
-import type { Container, ContainerStats } from "@/context/application"
+import type { Container } from "@/context/application"
 import { useTheme } from "@/context/theme"
 import { DockerV2 } from "@/lib/docker-v2"
-
-type StatsSummary = {
-  cpuPercent: number
-  memoryPercent: number
-  memoryUsage: number
-  memoryLimit: number
-  hasStats: boolean
-}
-
-const EMPTY_STATS: StatsSummary = {
-  cpuPercent: 0,
-  memoryPercent: 0,
-  memoryUsage: 0,
-  memoryLimit: 0,
-  hasStats: false,
-}
+import { formatStatsMemory, formatStatsPercent, summarizeContainerStats, summarizeProjectStats } from "@/util/container-stats"
 
 export default function RightSidebar(props: { overlay?: boolean }) {
   const theme = useTheme().theme
@@ -40,7 +25,7 @@ export default function RightSidebar(props: { overlay?: boolean }) {
   const projectStats = createMemo(() => summarizeStats(selectedProjectContainers()))
   const selectedStats = createMemo(() => {
     const container = selectedContainer()
-    return toSummary(container ? app.containerStats[container.id] : undefined)
+    return summarizeContainerStats(container ? app.containerStats[container.id] : undefined)
   })
 
   onMount(async () => {
@@ -74,68 +59,8 @@ export default function RightSidebar(props: { overlay?: boolean }) {
     return "v" + version
   }
 
-  function toSummary(stats: ContainerStats | undefined): StatsSummary {
-    return stats
-      ? {
-        cpuPercent: stats.cpuPercent,
-        memoryPercent: stats.memoryPercent,
-        memoryUsage: stats.memoryUsage,
-        memoryLimit: stats.memoryLimit,
-        hasStats: true,
-      }
-      : EMPTY_STATS
-  }
-
-  function summarizeStats(containers: Container[]): StatsSummary {
-    let cpuPercent = 0
-    let memoryUsage = 0
-    let memoryLimit = 0
-    let statCount = 0
-
-    for (const container of containers) {
-      const stats = app.containerStats[container.id]
-      if (!stats) continue
-
-      cpuPercent += stats.cpuPercent
-      memoryUsage += stats.memoryUsage
-      memoryLimit += stats.memoryLimit
-      statCount += 1
-    }
-
-    if (statCount === 0) return EMPTY_STATS
-
-    return {
-      cpuPercent,
-      memoryPercent: memoryLimit > 0 ? (memoryUsage / memoryLimit) * 100 : 0,
-      memoryUsage,
-      memoryLimit,
-      hasStats: true,
-    }
-  }
-
-  function formatPercent(value: number, hasStats: boolean) {
-    if (!hasStats) return "-"
-    return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)}%`
-  }
-
-  function formatBytes(bytes: number) {
-    const units = ["B", "KB", "MB", "GB", "TB"]
-    let value = bytes
-    let unitIndex = 0
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024
-      unitIndex += 1
-    }
-
-    return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`
-  }
-
-  function formatMemory(stats: StatsSummary) {
-    if (!stats.hasStats) return "-"
-
-    const limit = stats.memoryLimit > 0 ? formatBytes(stats.memoryLimit) : "-"
-    return `${formatBytes(stats.memoryUsage)} / ${limit} (${formatPercent(stats.memoryPercent, true)})`
+  function summarizeStats(containers: Container[]) {
+    return summarizeProjectStats(containers, app.containerStats)
   }
 
   function StatLine(props: { label: string, value: string }) {
@@ -171,15 +96,15 @@ export default function RightSidebar(props: { overlay?: boolean }) {
             <text fg={theme.textMuted} wrapMode="none">
               {app.activeContainerProject ?? "No project"}
             </text>
-            <StatLine label="Project CPU" value={formatPercent(projectStats().cpuPercent, projectStats().hasStats)} />
-            <StatLine label="Project RAM" value={formatMemory(projectStats())} />
+            <StatLine label="Project CPU" value={formatStatsPercent(projectStats().cpuPercent, projectStats().hasStats)} />
+            <StatLine label="Project RAM" value={formatStatsMemory(projectStats())} />
           </box>
           <Show when={selectedContainer()}>
             <box flexDirection="column" gap={1}>
               <text fg={theme.text}><b>Selected Container</b></text>
               <text fg={theme.textMuted} wrapMode="none">{selectedContainer()?.name}</text>
-              <StatLine label="CPU" value={formatPercent(selectedStats().cpuPercent, selectedStats().hasStats)} />
-              <StatLine label="RAM" value={formatMemory(selectedStats())} />
+              <StatLine label="CPU" value={formatStatsPercent(selectedStats().cpuPercent, selectedStats().hasStats)} />
+              <StatLine label="RAM" value={formatStatsMemory(selectedStats())} />
             </box>
           </Show>
           <Show when={app.containerListMode === "projects" && selectedProjectContainers().length > 0}>
@@ -187,7 +112,7 @@ export default function RightSidebar(props: { overlay?: boolean }) {
               <text fg={theme.text}><b>Containers</b></text>
               <For each={selectedProjectContainers()}>
                 {(container) => {
-                  const stats = () => toSummary(app.containerStats[container.id])
+                  const stats = () => summarizeContainerStats(app.containerStats[container.id])
                   const isActive = () => app.activeContainer === container.id
 
                   return (
@@ -196,7 +121,7 @@ export default function RightSidebar(props: { overlay?: boolean }) {
                         {container.name}
                       </text>
                       <text fg={theme.textMuted} wrapMode="none">
-                        CPU {formatPercent(stats().cpuPercent, stats().hasStats)} RAM {formatPercent(stats().memoryPercent, stats().hasStats)}
+                        CPU {formatStatsPercent(stats().cpuPercent, stats().hasStats)} RAM {formatStatsPercent(stats().memoryPercent, stats().hasStats)}
                       </text>
                     </box>
                   )
