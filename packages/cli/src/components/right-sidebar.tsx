@@ -25,7 +25,10 @@ export default function RightSidebar(props: { overlay?: boolean }) {
   const projectStats = createMemo(() => summarizeStats(selectedProjectContainers()))
   const selectedStats = createMemo(() => {
     const container = selectedContainer()
-    return summarizeContainerStats(container ? app.containerStats[container.id] : undefined)
+    return summarizeContainerStats(
+      container ? app.containerStats[container.id] : undefined,
+      container?.state === "running",
+    )
   })
 
   onMount(async () => {
@@ -96,14 +99,14 @@ export default function RightSidebar(props: { overlay?: boolean }) {
             <text fg={theme.textMuted} wrapMode="none">
               {app.activeContainerProject ?? "No project"}
             </text>
-            <StatLine label="Project CPU" value={formatStatsPercent(projectStats().cpuPercent, projectStats().hasStats)} />
+            <StatLine label="Project CPU" value={formatStatsPercent(projectStats().cpuPercent, projectStats().hasStats, projectStats().loading)} />
             <StatLine label="Project RAM" value={formatStatsMemory(projectStats())} />
           </box>
           <Show when={selectedContainer()}>
             <box flexDirection="column" gap={1}>
               <text fg={theme.text}><b>Selected Container</b></text>
               <text fg={theme.textMuted} wrapMode="none">{selectedContainer()?.name}</text>
-              <StatLine label="CPU" value={formatStatsPercent(selectedStats().cpuPercent, selectedStats().hasStats)} />
+              <StatLine label="CPU" value={formatStatsPercent(selectedStats().cpuPercent, selectedStats().hasStats, selectedStats().loading)} />
               <StatLine label="RAM" value={formatStatsMemory(selectedStats())} />
             </box>
           </Show>
@@ -112,7 +115,7 @@ export default function RightSidebar(props: { overlay?: boolean }) {
               <text fg={theme.text}><b>Containers</b></text>
               <For each={selectedProjectContainers()}>
                 {(container) => {
-                  const stats = () => summarizeContainerStats(app.containerStats[container.id])
+                  const stats = () => summarizeContainerStats(app.containerStats[container.id], container.state === "running")
                   const isActive = () => app.activeContainer === container.id
 
                   return (
@@ -121,7 +124,7 @@ export default function RightSidebar(props: { overlay?: boolean }) {
                         {container.name}
                       </text>
                       <text fg={theme.textMuted} wrapMode="none">
-                        CPU {formatStatsPercent(stats().cpuPercent, stats().hasStats)} RAM {formatStatsPercent(stats().memoryPercent, stats().hasStats)}
+                        CPU {formatStatsPercent(stats().cpuPercent, stats().hasStats, stats().loading)} RAM {formatStatsPercent(stats().memoryPercent, stats().hasStats, stats().loading)}
                       </text>
                     </box>
                   )

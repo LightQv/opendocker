@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   Match,
+  on,
   onMount,
   Switch,
   onCleanup,
@@ -19,6 +20,8 @@ import { useKeybind } from "@/context/keybind"
 import { useDialog } from "@/ui/dialog"
 import { DialogConfirm } from "@/ui/dialog-confirm"
 import { useToast } from "@/ui/toast"
+import { DockerV2 } from "@/lib/docker-v2"
+import { applyImageUsage } from "@/util/docker-resources"
 
 export default function List() {
   const keybind = useKeybind()
@@ -26,8 +29,9 @@ export default function List() {
   const dialog = useDialog()
   const toast = useToast()
   const theme = useTheme().theme
-  const [loaded, setLoaded] = createSignal<boolean>(false)
+  const [loaded, setLoaded] = createSignal<boolean>(true)
   const [active, setActive] = createSignal<boolean>(false)
+  let refreshingImages = false
 
   function validateActiveImage(images: Array<Image>, activeId: string | null) {
     if (!activeId) return images[0]?.id
@@ -36,18 +40,31 @@ export default function List() {
   }
 
   async function imagePulse() {
-    const d = app.docker
-    if (!d) return
+    if (refreshingImages) return
 
-    const fetchedImages = await d?.streamImages() || []
-    app.setImages(fetchedImages)
+    refreshingImages = true
 
-    const validActiveId = validateActiveImage(fetchedImages, app.activeImage)
-    if (validActiveId !== app.activeImage) {
-      app.setActiveImage(validActiveId)
+    try {
+      const images = await DockerV2.getImages().catch(() => undefined)
+      if (!images) return
+
+      const fetchedImages = applyImageUsage(preserveUsage(images), app.containers)
+      app.setImages(fetchedImages)
+
+      const validActiveId = validateActiveImage(fetchedImages, app.activeImage)
+      if (validActiveId !== app.activeImage) {
+        app.setActiveImage(validActiveId)
+      }
+
+      setLoaded(true)
+    } finally {
+      refreshingImages = false
     }
+  }
 
-    setLoaded(true)
+  function preserveUsage(images: Array<Image>) {
+    const usedById = new Map(app.images.map(image => [image.id, image.used]))
+    return images.map(image => ({ ...image, used: usedById.get(image.id) ?? image.used }))
   }
 
   onMount(() => {
@@ -144,6 +161,15 @@ export default function List() {
     }
   })
 
+  createEffect(on(
+    () => app.containers.map(container => `${container.id}:${container.imageId ?? ""}`).join("|"),
+    () => {
+      if (app.images.length === 0) return
+      app.setImages(applyImageUsage(app.images, app.containers))
+    },
+    { defer: true },
+  ))
+
   createEffect(() => {
     setActive(app.activePane === "images")
   })
@@ -162,7 +188,7 @@ export default function List() {
           <Show when={app.images.length === 0 && !loaded() && active()}>
             <Spinner />
           </Show>
-          <Show when={loaded() || !active()}>
+          <Show when={loaded() || app.images.length > 0 || !active()}>
             <text fg={theme.textMuted}>
               {app.images.length}
             </text>

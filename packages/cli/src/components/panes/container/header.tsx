@@ -49,7 +49,10 @@ export default function Header() {
   const stats = createMemo(() => {
     if (app.containerListMode !== "projects") {
       const container = selected()
-      return summarizeContainerStats(container ? app.containerStats[container.id] : undefined)
+      return summarizeContainerStats(
+        container ? app.containerStats[container.id] : undefined,
+        container?.state === "running",
+      )
     }
 
     return summarizeProjectStats(selectedProjectContainers(), app.containerStats)
@@ -85,8 +88,8 @@ export default function Header() {
         label: () => "State",
         value: () => app.containerListMode === "projects" ? projectState() : selected()?.state,
       },
-      { label: () => "CPU", value: () => formatStatsPercent(stats().cpuPercent, stats().hasStats) },
-      { label: () => "RAM", value: () => formatStatsPercent(stats().memoryPercent, stats().hasStats) },
+      { label: () => "CPU", value: () => formatStatsPercent(stats().cpuPercent, stats().hasStats, stats().loading) },
+      { label: () => "RAM", value: () => formatStatsPercent(stats().memoryPercent, stats().hasStats, stats().loading) },
       { label: () => "Mode", value: () => app.shellFocused ? "shell" : "logs" },
     ]
     const webPort = app.containerListMode === "containers"

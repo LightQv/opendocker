@@ -3,6 +3,7 @@ import http from "node:http"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { z } from "zod"
+import type { Image, Volume } from "@/context/application"
 
 export namespace DockerV2 {
   const DEFAULT_SOCKET = "/var/run/docker.sock"
@@ -31,10 +32,32 @@ export namespace DockerV2 {
   interface DockerContainer {
     Id: string
     Names: string[]
+    ImageID?: string
     State: string
     Status: string
     Labels?: Record<string, string> | null
     Ports?: DockerPort[]
+    Mounts?: Array<{
+      Type?: string
+      Name?: string
+    }>
+  }
+
+  interface DockerImage {
+    Id: string
+    RepoTags?: string[] | null
+    Size: number
+    Created: number
+  }
+
+  interface DockerVolume {
+    Name: string
+    Driver: string
+    Scope: string
+    Mountpoint: string
+    Labels?: Record<string, string> | null
+    Options?: Record<string, string> | null
+    Status?: Record<string, string> | null
   }
 
   interface DockerPort {
@@ -74,10 +97,12 @@ export namespace DockerV2 {
   export interface ContainerV2 {
     id: string
     name: string
+    imageId?: string
     project: string
     service?: string
     composeWorkingDir?: string
     composeConfigFiles: string[]
+    volumeNames?: string[]
     ports: Array<{
       hostIp?: string
       privatePort: number
@@ -244,6 +269,37 @@ export namespace DockerV2 {
     return value.split(",").map(file => file.trim()).filter(Boolean)
   }
 
+  function toImage(image: DockerImage): Image {
+    const fullName = image.RepoTags?.[0] ?? "<none>:<none>"
+    const lastColonIndex = fullName.lastIndexOf(":")
+    const name = lastColonIndex > 0 ? fullName.substring(0, lastColonIndex) : fullName
+    const tag = lastColonIndex > 0 ? fullName.substring(lastColonIndex + 1) : "<none>"
+    const mb = Math.round(image.Size / 1_000_000)
+    const created = new Date(image.Created * 1000).toLocaleDateString()
+
+    return {
+      id: image.Id,
+      name,
+      tag,
+      size: `${mb} MB`,
+      created,
+      used: false,
+    }
+  }
+
+  function toVolume(volume: DockerVolume): Volume {
+    return {
+      name: volume.Name,
+      driver: volume.Driver,
+      scope: volume.Scope,
+      mountpoint: volume.Mountpoint,
+      labels: volume.Labels ?? {},
+      options: volume.Options ?? null,
+      status: volume.Status ?? null,
+      used: false,
+    }
+  }
+
   async function runDocker(args: string[], cwd?: string): Promise<void> {
     const proc = Bun.spawn(["docker", ...args], {
       cwd,
@@ -277,8 +333,30 @@ export namespace DockerV2 {
     return args
   }
 
-  async function request(socketPath: string, path: string, method: string = "GET"): Promise<unknown> {
+  async function request(socketPath: string, path: string, method: string = "GET", signal?: AbortSignal): Promise<unknown> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new Error("Docker request aborted"))
+        return
+      }
+
+      let settled = false
+      let cleanup = () => {}
+
+      function resolveOnce(value: unknown) {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(value)
+      }
+
+      function rejectOnce(error: Error) {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      }
+
       const req = http.request({ socketPath, path, method }, (res) => {
         let data = ""
         res.on("data", (chunk) => {
@@ -287,26 +365,34 @@ export namespace DockerV2 {
 
         res.on("end", () => {
           if (res.statusCode && res.statusCode >= 400) {
-            reject(new Error(`Docker API ${res.statusCode}: ${data}`))
+            rejectOnce(new Error(`Docker API ${res.statusCode}: ${data}`))
             return
           }
 
           if (!data.trim()) {
-            reject(new Error("Docker API returned empty response"))
+            rejectOnce(new Error("Docker API returned empty response"))
             return
           }
 
           const parsed = parseJson(data)
           if (parsed === undefined) {
-            reject(new Error("Docker API returned invalid JSON"))
+            rejectOnce(new Error("Docker API returned invalid JSON"))
             return
           }
 
-          resolve(parsed)
+          resolveOnce(parsed)
         })
       })
 
-      req.on("error", reject)
+      const onAbort = () => {
+        req.destroy(new Error("Docker request aborted"))
+      }
+      cleanup = () => {
+        signal?.removeEventListener("abort", onAbort)
+      }
+
+      signal?.addEventListener("abort", onAbort, { once: true })
+      req.on("error", rejectOnce)
       req.setTimeout(REQUEST_TIMEOUT_MS, () => {
         req.destroy(new Error(`Docker request timed out after ${REQUEST_TIMEOUT_MS}ms`))
       })
@@ -387,10 +473,15 @@ export namespace DockerV2 {
     const parsed = z.array(z.object({
       Id: z.string(),
       Names: z.array(z.string()),
+      ImageID: z.string().optional(),
       State: z.string(),
       Status: z.string(),
       Labels: z.record(z.string(), z.string()).nullable().optional(),
       Ports: z.array(portSchema).optional().default([]),
+      Mounts: z.array(z.object({
+        Type: z.string().optional(),
+        Name: z.string().optional(),
+      }).passthrough()).optional().default([]),
     })).safeParse(raw)
 
     if (!parsed.success) {
@@ -405,10 +496,14 @@ export namespace DockerV2 {
         return {
           id: container.Id,
           name: primaryName.replace(/^\//, ""),
+          imageId: container.ImageID,
           project: composeProject ?? "Standalone",
           service: labels["com.docker.compose.service"],
           composeWorkingDir: labels["com.docker.compose.project.working_dir"],
           composeConfigFiles: parseComposeConfigFiles(labels["com.docker.compose.project.config_files"]),
+          volumeNames: container.Mounts
+            ?.filter(mount => mount.Type === "volume" && mount.Name)
+            .map(mount => mount.Name!) ?? [],
           ports: container.Ports?.map(port => ({
             hostIp: port.IP,
             privatePort: port.PrivatePort,
@@ -427,16 +522,62 @@ export namespace DockerV2 {
       })
   }
 
-  export async function getContainerStats(containerIds: string[]): Promise<Record<string, ContainerStats>> {
+  export async function getImages(): Promise<Image[]> {
+    const socketPath = await getSocket()
+    const raw = await request(socketPath, "/images/json")
+    const parsed = z.array(z.object({
+      Id: z.string(),
+      RepoTags: z.array(z.string()).nullable().optional(),
+      Size: z.number(),
+      Created: z.number(),
+    })).safeParse(raw)
+
+    if (!parsed.success) {
+      return []
+    }
+
+    return parsed.data
+      .map((image: DockerImage) => toImage(image))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  export async function getVolumes(): Promise<Volume[]> {
+    const socketPath = await getSocket()
+    const raw = await request(socketPath, "/volumes")
+    const parsed = z.object({
+      Volumes: z.array(z.object({
+        Name: z.string(),
+        Driver: z.string(),
+        Scope: z.string(),
+        Mountpoint: z.string(),
+        Labels: z.record(z.string(), z.string()).nullable().optional(),
+        Options: z.record(z.string(), z.string()).nullable().optional(),
+        Status: z.record(z.string(), z.string()).nullable().optional(),
+      }).passthrough()).optional().default([]),
+    }).passthrough().safeParse(raw)
+
+    if (!parsed.success) {
+      return []
+    }
+
+    return parsed.data.Volumes
+      .map((volume: DockerVolume) => toVolume(volume))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  export async function getContainerStats(containerIds: string[], signal?: AbortSignal): Promise<Record<string, ContainerStats>> {
     if (containerIds.length === 0) return {}
+    if (signal?.aborted) return {}
 
     const socketPath = await getSocket()
     const stats: Array<ContainerStats | undefined> = []
 
     for (let index = 0; index < containerIds.length; index += STATS_CONCURRENCY) {
+      if (signal?.aborted) break
+
       const batch = containerIds.slice(index, index + STATS_CONCURRENCY)
       stats.push(...await Promise.all(batch.map(async (id) => {
-        const raw = await request(socketPath, `/containers/${encodeURIComponent(id)}/stats?stream=false`)
+        const raw = await request(socketPath, `/containers/${encodeURIComponent(id)}/stats?stream=false`, "GET", signal)
           .catch(() => undefined)
         const parsed = DockerStatsSchema.safeParse(raw)
 

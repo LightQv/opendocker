@@ -6,6 +6,7 @@ export type ContainerStatsSummary = {
   memoryUsage: number
   memoryLimit: number
   hasStats: boolean
+  loading: boolean
 }
 
 export const EMPTY_CONTAINER_STATS_SUMMARY: ContainerStatsSummary = {
@@ -14,14 +15,21 @@ export const EMPTY_CONTAINER_STATS_SUMMARY: ContainerStatsSummary = {
   memoryUsage: 0,
   memoryLimit: 0,
   hasStats: false,
+  loading: false,
 }
 
 function cleanMetric(value: number): number {
   return Number.isFinite(value) ? Math.max(value, 0) : 0
 }
 
-export function summarizeContainerStats(stats: ContainerStats | undefined): ContainerStatsSummary {
-  if (!stats) return EMPTY_CONTAINER_STATS_SUMMARY
+export function summarizeContainerStats(stats: ContainerStats | undefined, running = false): ContainerStatsSummary {
+  if (!running) return EMPTY_CONTAINER_STATS_SUMMARY
+  if (!stats) {
+    return {
+      ...EMPTY_CONTAINER_STATS_SUMMARY,
+      loading: true,
+    }
+  }
 
   return {
     cpuPercent: cleanMetric(stats.cpuPercent),
@@ -29,6 +37,7 @@ export function summarizeContainerStats(stats: ContainerStats | undefined): Cont
     memoryUsage: cleanMetric(stats.memoryUsage),
     memoryLimit: cleanMetric(stats.memoryLimit),
     hasStats: true,
+    loading: false,
   }
 }
 
@@ -39,9 +48,13 @@ export function summarizeProjectStats(
   let cpuPercent = 0
   let memoryUsage = 0
   let memoryLimit = 0
+  let runningCount = 0
   let statCount = 0
 
   for (const container of containers) {
+    if (container.state !== "running") continue
+
+    runningCount += 1
     const stats = statsByContainer[container.id]
     if (!stats) continue
 
@@ -51,7 +64,14 @@ export function summarizeProjectStats(
     statCount += 1
   }
 
-  if (statCount === 0) return EMPTY_CONTAINER_STATS_SUMMARY
+  if (statCount === 0) {
+    return runningCount > 0
+      ? {
+        ...EMPTY_CONTAINER_STATS_SUMMARY,
+        loading: true,
+      }
+      : EMPTY_CONTAINER_STATS_SUMMARY
+  }
 
   return {
     cpuPercent,
@@ -59,10 +79,12 @@ export function summarizeProjectStats(
     memoryUsage,
     memoryLimit,
     hasStats: true,
+    loading: false,
   }
 }
 
-export function formatStatsPercent(value: number, hasStats: boolean) {
+export function formatStatsPercent(value: number, hasStats: boolean, loading = false) {
+  if (loading) return "..."
   if (!hasStats) return "-"
   const percent = cleanMetric(value)
   return `${percent >= 100 ? percent.toFixed(0) : percent.toFixed(1)}%`
@@ -82,6 +104,7 @@ export function formatBytes(bytes: number) {
 }
 
 export function formatStatsMemory(stats: ContainerStatsSummary) {
+  if (stats.loading) return "..."
   if (!stats.hasStats) return "-"
 
   const limit = stats.memoryLimit > 0 ? formatBytes(stats.memoryLimit) : "-"

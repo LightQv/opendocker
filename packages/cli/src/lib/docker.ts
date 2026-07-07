@@ -1,32 +1,6 @@
 import http from "http"
-import type { Image, Volume } from "@/context/application"
 
 const DEFAULT_SOCKET = "/var/run/docker.sock"
-
-interface DockerImage {
-  Id: string
-  RepoTags: string[] | null
-  Size: number
-  Created: number
-}
-
-interface DockerContainerUsage {
-  ImageID: string
-  Mounts?: Array<{
-    Type?: string
-    Name?: string
-  }>
-}
-
-interface DockerVolume {
-  Name: string
-  Driver: string
-  Scope: string
-  Mountpoint: string
-  Labels: Record<string, string> | null
-  Options: Record<string, string> | null
-  Status: Record<string, string> | null
-}
 
 export interface ImageHistoryItem {
   Id: string
@@ -119,55 +93,6 @@ export class Docker {
     }
   }
 
-  private async getContainerUsage(): Promise<{ imageIds: Set<string>, volumeNames: Set<string> }> {
-    const containers: DockerContainerUsage[] = await this.request("/containers/json?all=1")
-    const imageIds = new Set<string>()
-    const volumeNames = new Set<string>()
-
-    for (const container of containers) {
-      if (container.ImageID) {
-        imageIds.add(container.ImageID)
-      }
-
-      for (const mount of container.Mounts ?? []) {
-        if (mount.Type === "volume" && mount.Name) {
-          volumeNames.add(mount.Name)
-        }
-      }
-    }
-
-    return { imageIds, volumeNames }
-  }
-
-  public async streamImages(): Promise<Array<Image>> {
-    const [images, usage] = await Promise.all([
-      this.request("/images/json") as Promise<DockerImage[]>,
-      this.getContainerUsage(),
-    ])
-
-    return images
-      .map((image: DockerImage) => {
-        const fullName = image.RepoTags?.[0] ?? "<none>:<none>"
-        const lastColonIndex = fullName.lastIndexOf(":")
-        const name = lastColonIndex > 0 ? fullName.substring(0, lastColonIndex) : fullName
-        const tag = lastColonIndex > 0 ? fullName.substring(lastColonIndex + 1) : "<none>"
-        const bytes = image.Size
-        const mb = Math.round(bytes / 1_000_000)
-        const createdDate = new Date(image.Created * 1000)
-        const created = createdDate.toLocaleDateString()
-
-        return {
-          id: image.Id,
-          name,
-          tag,
-          size: `${mb} MB`,
-          created,
-          used: usage.imageIds.has(image.Id),
-        }
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }
-
   public async getContainer(id: string): Promise<string> {
     const data = await this.request(`/containers/${id}/json`)
     return data.Name
@@ -189,27 +114,6 @@ export class Docker {
 
   public async removeImage(imageId: string): Promise<void> {
     await this.runDocker(["image", "rm", imageId])
-  }
-
-  public async streamVolumes(): Promise<Array<Volume>> {
-    const [response, usage] = await Promise.all([
-      this.request("/volumes"),
-      this.getContainerUsage(),
-    ])
-    const volumes: DockerVolume[] = response.Volumes || []
-
-    return volumes
-      .map((volume: DockerVolume) => ({
-        name: volume.Name,
-        driver: volume.Driver,
-        scope: volume.Scope,
-        mountpoint: volume.Mountpoint,
-        labels: volume.Labels || {},
-        options: volume.Options,
-        status: volume.Status,
-        used: usage.volumeNames.has(volume.Name),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
   }
 
   public async removeVolume(volumeName: string): Promise<void> {
