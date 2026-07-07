@@ -33,6 +33,14 @@ export namespace DockerV2 {
     State: string
     Status: string
     Labels?: Record<string, string> | null
+    Ports?: DockerPort[]
+  }
+
+  interface DockerPort {
+    IP?: string
+    PrivatePort: number
+    PublicPort?: number
+    Type: string
   }
 
   const DockerCpuStatsSchema = z.object({
@@ -69,6 +77,12 @@ export namespace DockerV2 {
     service?: string
     composeWorkingDir?: string
     composeConfigFiles: string[]
+    ports: Array<{
+      hostIp?: string
+      privatePort: number
+      publicPort?: number
+      type: string
+    }>
     state: string
     status: string
     health?: DockerHealth
@@ -363,12 +377,19 @@ export namespace DockerV2 {
   export async function getContainers(): Promise<ContainerV2[]> {
     const socketPath = await getSocket()
     const raw = await request(socketPath, "/containers/json?all=1")
+    const portSchema = z.object({
+      IP: z.string().optional(),
+      PrivatePort: z.number(),
+      PublicPort: z.number().optional(),
+      Type: z.string(),
+    })
     const parsed = z.array(z.object({
       Id: z.string(),
       Names: z.array(z.string()),
       State: z.string(),
       Status: z.string(),
       Labels: z.record(z.string(), z.string()).nullable().optional(),
+      Ports: z.array(portSchema).optional().default([]),
     })).safeParse(raw)
 
     if (!parsed.success) {
@@ -387,6 +408,12 @@ export namespace DockerV2 {
           service: labels["com.docker.compose.service"],
           composeWorkingDir: labels["com.docker.compose.project.working_dir"],
           composeConfigFiles: parseComposeConfigFiles(labels["com.docker.compose.project.config_files"]),
+          ports: container.Ports?.map(port => ({
+            hostIp: port.IP,
+            privatePort: port.PrivatePort,
+            publicPort: port.PublicPort,
+            type: port.Type,
+          })) ?? [],
           state: container.State,
           status: container.Status,
           health: inferHealth(container.Status),

@@ -10,11 +10,17 @@ import { Pane } from "@/ui/pane"
 import { getColorForContainerState } from "@/util/colors"
 import { TextAttributes } from "@opentui/core"
 import { useTheme } from "@/context/theme"
+import { formatContainerWebPort, getContainerWebPort } from "@/util/container"
 
 type StatsSummary = {
   cpuPercent: number
   memoryPercent: number
   hasStats: boolean
+}
+
+type HeaderField = {
+  label: () => string
+  value: () => string | undefined | null
 }
 
 const EMPTY_STATS: StatsSummary = {
@@ -122,23 +128,34 @@ export default function Header() {
     return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)}%`
   }
 
-  const fields = [
-    {
-      label: () => app.containerListMode === "projects" ? "Project" : "Name",
-      value: () => app.containerListMode === "projects" ? app.activeContainerProject : selected()?.name,
-    },
-    {
-      label: () => "Status",
-      value: () => app.containerListMode === "projects" ? projectStatus() : selected()?.status,
-    },
-    {
-      label: () => "State",
-      value: () => app.containerListMode === "projects" ? projectState() : selected()?.state,
-    },
-    { label: () => "CPU", value: () => formatPercent(stats().cpuPercent, stats().hasStats) },
-    { label: () => "RAM", value: () => formatPercent(stats().memoryPercent, stats().hasStats) },
-    { label: () => "Mode", value: () => app.shellFocused ? "shell" : "logs" },
-  ]
+  const fields = createMemo<HeaderField[]>(() => {
+    const result: HeaderField[] = [
+      {
+        label: () => app.containerListMode === "projects" ? "Project" : "Name",
+        value: () => app.containerListMode === "projects" ? app.activeContainerProject : selected()?.name,
+      },
+      {
+        label: () => "Status",
+        value: () => app.containerListMode === "projects" ? projectStatus() : selected()?.status,
+      },
+      {
+        label: () => "State",
+        value: () => app.containerListMode === "projects" ? projectState() : selected()?.state,
+      },
+      { label: () => "CPU", value: () => formatPercent(stats().cpuPercent, stats().hasStats) },
+      { label: () => "RAM", value: () => formatPercent(stats().memoryPercent, stats().hasStats) },
+      { label: () => "Mode", value: () => app.shellFocused ? "shell" : "logs" },
+    ]
+    const webPort = app.containerListMode === "containers"
+      ? getContainerWebPort(selected())
+      : undefined
+
+    if (webPort) {
+      result.splice(3, 0, { label: () => "Port", value: () => formatContainerWebPort(webPort) })
+    }
+
+    return result
+  })
 
   return (
     <Pane width="100%" height="auto" flexShrink={0}>
@@ -148,7 +165,7 @@ export default function Header() {
         flexDirection="row"
         gap={1}
       >
-        <For each={fields}>
+        <For each={fields()}>
           {(header) => (
             <box flexDirection="column">
               <text fg={theme.textMuted} attributes={TextAttributes.BOLD} flexShrink={0}>

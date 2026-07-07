@@ -12,6 +12,7 @@ export const KeybindsConfig = z.object({
   container_restart: z.string().optional().default("<leader>r").describe("Restart a container or project"),
   container_recreate: z.string().optional().default("<leader>b").describe("Recreate a container or project"),
   container_shell: z.string().optional().default("<leader>e").describe("Open or resume a container shell"),
+  container_open: z.string().optional().default("<leader>o").describe("Open a container web UI"),
   container_shell_detach: z.string().optional().default("<leader>z").describe("Detach from the active container shell"),
   container_shell_quit: z.string().optional().default("<leader>q").describe("Quit the active container shell"),
   resource_remove: z.string().optional().default("<leader>d").describe("Remove selected resource"),
