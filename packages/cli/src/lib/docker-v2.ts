@@ -35,6 +35,33 @@ export namespace DockerV2 {
     Labels?: Record<string, string> | null
   }
 
+  const DockerCpuStatsSchema = z.object({
+    cpu_usage: z.object({
+      total_usage: z.number().optional().default(0),
+      percpu_usage: z.array(z.number()).optional(),
+    }).passthrough().optional().default({}),
+    system_cpu_usage: z.number().optional().default(0),
+    online_cpus: z.number().optional(),
+  }).passthrough()
+
+  const DockerMemoryStatsSchema = z.object({
+    usage: z.number().optional().default(0),
+    limit: z.number().optional().default(0),
+    stats: z.object({
+      total_inactive_file: z.number().optional(),
+      inactive_file: z.number().optional(),
+      cache: z.number().optional(),
+    }).passthrough().optional().default({}),
+  }).passthrough()
+
+  const DockerStatsSchema = z.object({
+    cpu_stats: DockerCpuStatsSchema,
+    precpu_stats: DockerCpuStatsSchema.optional(),
+    memory_stats: DockerMemoryStatsSchema,
+  }).passthrough()
+
+  type DockerStats = z.infer<typeof DockerStatsSchema>
+
   export interface ContainerV2 {
     id: string
     name: string
@@ -45,6 +72,14 @@ export namespace DockerV2 {
     state: string
     status: string
     health?: DockerHealth
+  }
+
+  export interface ContainerStats {
+    id: string
+    cpuPercent: number
+    memoryPercent: number
+    memoryUsage: number
+    memoryLimit: number
   }
 
   export type ComposeProject = {
@@ -152,6 +187,41 @@ export namespace DockerV2 {
     }
 
     return undefined
+  }
+
+  function calculateCpuPercent(stats: DockerStats): number {
+    const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - (stats.precpu_stats?.cpu_usage.total_usage ?? 0)
+    const systemDelta = stats.cpu_stats.system_cpu_usage - (stats.precpu_stats?.system_cpu_usage ?? 0)
+    const onlineCpus = stats.cpu_stats.online_cpus ?? stats.cpu_stats.cpu_usage.percpu_usage?.length ?? 1
+
+    if (cpuDelta <= 0 || systemDelta <= 0) {
+      return 0
+    }
+
+    return (cpuDelta / systemDelta) * onlineCpus * 100
+  }
+
+  function calculateMemoryUsage(stats: DockerStats): number {
+    const usage = stats.memory_stats.usage
+    const inactiveFile = stats.memory_stats.stats.total_inactive_file
+      ?? stats.memory_stats.stats.inactive_file
+      ?? stats.memory_stats.stats.cache
+      ?? 0
+
+    return Math.max(usage - inactiveFile, 0)
+  }
+
+  function calculateContainerStats(id: string, stats: DockerStats): ContainerStats {
+    const memoryUsage = calculateMemoryUsage(stats)
+    const memoryLimit = stats.memory_stats.limit
+
+    return {
+      id,
+      cpuPercent: calculateCpuPercent(stats),
+      memoryPercent: memoryLimit > 0 ? (memoryUsage / memoryLimit) * 100 : 0,
+      memoryUsage,
+      memoryLimit,
+    }
   }
 
   function parseComposeConfigFiles(value: string | undefined): string[] {
@@ -327,6 +397,31 @@ export namespace DockerV2 {
         if (b.state === "running" && a.state !== "running") return 1
         return a.name.localeCompare(b.name)
       })
+  }
+
+  export async function getContainerStats(containerIds: string[]): Promise<Record<string, ContainerStats>> {
+    if (containerIds.length === 0) return {}
+
+    const socketPath = await getSocket()
+    const stats = await Promise.all(containerIds.map(async (id) => {
+      const raw = await request(socketPath, `/containers/${encodeURIComponent(id)}/stats?stream=false`)
+        .catch(() => undefined)
+      const parsed = DockerStatsSchema.safeParse(raw)
+
+      if (!parsed.success) {
+        return undefined
+      }
+
+      return calculateContainerStats(id, parsed.data)
+    }))
+    const result: Record<string, ContainerStats> = {}
+
+    for (const item of stats) {
+      if (!item) continue
+      result[item.id] = item
+    }
+
+    return result
   }
 
   export async function stopContainer(container: string): Promise<void> {

@@ -14,6 +14,7 @@ export default function Keybinds() {
   const app = useApplication()
 
   const right = createMemo<Config>(() => app.shellFocused ? [] : [
+    { label: app.rightSidebarOpen ? "close info" : "info", key: "sidebar_toggle" },
     { label: "commands", key: "open_settings" },
   ])
 

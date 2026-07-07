@@ -37,6 +37,15 @@ const Container = z.object({
 })
 export type Container = z.infer<typeof Container>
 
+const ContainerStats = z.object({
+  id: z.string().describe("Unique container identifier"),
+  cpuPercent: z.number().describe("Container CPU usage percentage"),
+  memoryPercent: z.number().describe("Container memory usage percentage"),
+  memoryUsage: z.number().describe("Container memory usage in bytes"),
+  memoryLimit: z.number().describe("Container memory limit in bytes"),
+})
+export type ContainerStats = z.infer<typeof ContainerStats>
+
 export type ContainerListMode = "projects" | "containers"
 
 const Image = z.object({
@@ -115,6 +124,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
     const parsedShell = ShellConfig.safeParse({ selection: kv.get("shell", "auto") })
     const [store, setStore] = createStore<{
       containers: Array<Container>
+      containerStats: Record<string, ContainerStats>
       images: Array<Image>
       volumes: Array<Volume>
       activeContainer: string | null
@@ -136,6 +146,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       config: Config
     }>({
       containers: [],
+      containerStats: {},
       images: [],
       volumes: [],
       activeContainer: null,
@@ -167,6 +178,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
 
     return {
       get containers() { return store.containers },
+      get containerStats() { return store.containerStats },
       get images() { return store.images },
       get volumes() { return store.volumes },
       get activeContainer() { return store.activeContainer },
@@ -230,6 +242,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get config() { return store.config },
 
       setContainers: (v: Array<Container>) => setStore("containers", v),
+      setContainerStats: (v: Record<string, ContainerStats>) => setStore("containerStats", v),
       setImages: (v: Array<Image>) => setStore("images", v),
       setVolumes: (v: Array<Volume>) => setStore("volumes", v),
       setActiveContainer: (v: string | null) => setStore("activeContainer", v),

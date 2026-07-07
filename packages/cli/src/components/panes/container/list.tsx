@@ -51,21 +51,34 @@ export default function List() {
   })
   const maxStateLength = () => Math.max(...selectedProjectContainers().map(c => c.state.length), 0)
   const theme = useTheme().theme
+  let refreshing = false
 
   async function setup() {
-    const c = await DockerV2.getContainers()
-    app.setContainers(c)
-    const activeProject = validateActiveProject(c, app.activeContainerProject)
-    if (activeProject !== app.activeContainerProject) {
-      app.setActiveContainerProject(activeProject)
-    }
+    if (refreshing) return
+    refreshing = true
 
-    const containers = activeProject
-      ? c.filter(container => container.project === activeProject)
-      : c
-    const activeId = validateActiveContainer(containers, app.activeContainer)
-    if (activeId !== app.activeContainer) {
-      app.setActiveContainer(activeId)
+    try {
+      const c = await DockerV2.getContainers()
+      app.setContainers(c)
+      const activeProject = validateActiveProject(c, app.activeContainerProject)
+      if (activeProject !== app.activeContainerProject) {
+        app.setActiveContainerProject(activeProject)
+      }
+
+      const containers = activeProject
+        ? c.filter(container => container.project === activeProject)
+        : c
+      const activeId = validateActiveContainer(containers, app.activeContainer)
+      if (activeId !== app.activeContainer) {
+        app.setActiveContainer(activeId)
+      }
+
+      const runningContainerIds = containers
+        .filter(container => container.state === "running")
+        .map(container => container.id)
+      app.setContainerStats(await DockerV2.getContainerStats(runningContainerIds))
+    } finally {
+      refreshing = false
     }
   }
 
