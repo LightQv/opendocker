@@ -1,16 +1,17 @@
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
-import { decodePasteBytes, type ParsedKey, type PasteEvent, type ScrollBoxRenderable } from "@opentui/core"
+import { decodePasteBytes, TextAttributes, type ParsedKey, type PasteEvent, type RGBA, type ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard, usePaste } from "@opentui/solid"
 import { useApplication } from "@/context/application"
 import { useKeybind } from "@/context/keybind"
 import { useTheme } from "@/context/theme"
 import { useDialog } from "@/ui/dialog"
 import { Pane } from "@/ui/pane"
-import { ContainerShell } from "@/lib/container-shell"
+import { ContainerShell, type ShellRow, type ShellRun, type ShellRunStyle } from "@/lib/container-shell"
 
 const PASTE_CHUNK_SIZE = 8_192
 const BRACKETED_PASTE_START = "\x1b[200~"
 const BRACKETED_PASTE_END = "\x1b[201~"
+type RenderColor = string | RGBA
 
 export default function Shell() {
   const app = useApplication()
@@ -345,21 +346,106 @@ export default function Shell() {
     )
   })
 
-  function renderLine(line: string, lineIndex: number) {
+  function attributesFor(style: ShellRunStyle) {
+    let attributes = TextAttributes.NONE
+    if (style.bold) attributes |= TextAttributes.BOLD
+    if (style.dim) attributes |= TextAttributes.DIM
+    if (style.italic) attributes |= TextAttributes.ITALIC
+    if (style.underline) attributes |= TextAttributes.UNDERLINE
+    if (style.blink) attributes |= TextAttributes.BLINK
+    if (style.hidden) attributes |= TextAttributes.HIDDEN
+    if (style.strikethrough) attributes |= TextAttributes.STRIKETHROUGH
+    return attributes
+  }
+
+  function resolveRunColors(style: ShellRunStyle): { fg?: RenderColor, bg?: RenderColor } {
+    if (!style.inverse) {
+      return {
+        fg: style.fg,
+        bg: style.bg,
+      }
+    }
+
+    return {
+      fg: style.bg ?? theme.backgroundPanel,
+      bg: style.fg ?? theme.text,
+    }
+  }
+
+  function resolveCursorColors(style: ShellRunStyle): { fg: RenderColor, bg: RenderColor } {
+    const colors = resolveRunColors(style)
+    return {
+      fg: colors.bg ?? theme.backgroundPanel,
+      bg: colors.fg ?? theme.text,
+    }
+  }
+
+  function renderRun(run: ShellRun, text = run.text, cursor = false) {
+    const colors = cursor ? resolveCursorColors(run.style) : resolveRunColors(run.style)
+
+    return (
+      <span
+        style={{
+          fg: colors.fg,
+          bg: colors.bg,
+          attributes: attributesFor(run.style),
+        }}
+      >
+        {text}
+      </span>
+    )
+  }
+
+  function splitRunText(run: ShellRun, cursorColumn: number) {
+    const cursorIndex = run.text.length === run.columns
+      ? cursorColumn
+      : Math.min(cursorColumn, run.text.length)
+
+    return {
+      before: run.text.slice(0, cursorIndex),
+      cursor: run.text.slice(cursorIndex, cursorIndex + 1) || " ",
+      after: run.text.slice(cursorIndex + 1),
+    }
+  }
+
+  function renderLine(line: ShellRow, lineIndex: number) {
     const current = snapshot()
-    if (!current || current.cursorY !== lineIndex) return line
+    if (!current || current.cursorY !== lineIndex) {
+      return line.map(run => renderRun(run))
+    }
 
-    const cursorX = current.cursorX
-    const padded = line.padEnd(cursorX + 1, " ")
-    const before = padded.slice(0, cursorX)
-    const cursor = padded[cursorX] || " "
-    const after = padded.slice(cursorX + 1)
+    const rendered = []
+    let cursorRendered = false
+    let column = 0
 
-    return [
-      before,
-      <span style={{ fg: theme.backgroundPanel, bg: theme.text }}>{cursor}</span>,
-      after,
-    ]
+    for (let index = 0; index < line.length; index += 1) {
+      const run = line[index]!
+      const nextColumn = column + run.columns
+
+      if (!cursorRendered && current.cursorX >= column && current.cursorX < nextColumn) {
+        const split = splitRunText(run, current.cursorX - column)
+        if (split.before) {
+          rendered.push(renderRun(run, split.before))
+        }
+        rendered.push(renderRun(run, split.cursor, true))
+        if (split.after) {
+          rendered.push(renderRun(run, split.after))
+        }
+        cursorRendered = true
+      } else {
+        rendered.push(renderRun(run))
+      }
+
+      column = nextColumn
+    }
+
+    if (!cursorRendered) {
+      rendered.push(
+        <span style={{ fg: theme.backgroundPanel, bg: theme.text, attributes: TextAttributes.NONE }}> </span>,
+      )
+    }
+
+    return rendered
   }
 
   return (
@@ -396,7 +482,7 @@ export default function Shell() {
                     <For each={snapshot()?.rows ?? []}>
                       {(line, index) => (
                         <box width="100%" flexShrink={0}>
-                          <text width="100%" fg={theme.textMuted} wrapMode="none">{renderLine(line, index())}</text>
+                          <text width="100%" fg={theme.text} wrapMode="none">{renderLine(line, index())}</text>
                         </box>
                       )}
                     </For>

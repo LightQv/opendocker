@@ -11,11 +11,58 @@ export type ContainerShellSession = {
   quit(): void
 }
 
+export type ShellColor = `#${string}`
+
+export type ShellRunStyle = {
+  fg?: ShellColor
+  bg?: ShellColor
+  bold?: boolean
+  dim?: boolean
+  italic?: boolean
+  underline?: boolean
+  blink?: boolean
+  inverse?: boolean
+  hidden?: boolean
+  strikethrough?: boolean
+}
+
+export type ShellRun = {
+  text: string
+  columns: number
+  style: ShellRunStyle
+}
+
+export type ShellRow = ShellRun[]
+
 export type ContainerShellSnapshot = {
-  rows: string[]
+  rows: ShellRow[]
   cursorX: number
   cursorY: number
   alternate: boolean
+}
+
+type TerminalCell = {
+  getWidth(): number
+  getChars(): string
+  getFgColor(): number
+  getBgColor(): number
+  isBold(): number
+  isItalic(): number
+  isDim(): number
+  isUnderline(): number
+  isBlink(): number
+  isInverse(): number
+  isInvisible(): number
+  isStrikethrough(): number
+  isFgRGB(): boolean
+  isBgRGB(): boolean
+  isFgPalette(): boolean
+  isBgPalette(): boolean
+}
+
+type TerminalLine = {
+  readonly length: number
+  getCell(x: number, cell?: TerminalCell): TerminalCell | undefined
 }
 
 type CreateShellSessionOptions = {
@@ -54,6 +101,25 @@ const pendingSessions = new Map<string, PendingShellSession>()
 const SHELL_CANDIDATES = ["bash", "zsh", "ash", "sh"]
 const EXEC_TIMEOUT_MS = 8_000
 const SHELL_CREATION_CANCELLED = "Shell creation cancelled"
+const ANSI_PALETTE: ShellColor[] = [
+  "#000000",
+  "#cd0000",
+  "#00cd00",
+  "#cdcd00",
+  "#0000ee",
+  "#cd00cd",
+  "#00cdcd",
+  "#e5e5e5",
+  "#7f7f7f",
+  "#ff0000",
+  "#00ff00",
+  "#ffff00",
+  "#5c5cff",
+  "#ff00ff",
+  "#00ffff",
+  "#ffffff",
+]
+const CUBE_STEPS = [0, 95, 135, 175, 215, 255]
 
 function shellCancellationError(): Error {
   return new Error(SHELL_CREATION_CANCELLED)
@@ -69,6 +135,120 @@ function isShellCancellation(error: unknown): boolean {
 
 function isTimeout(error: unknown): boolean {
   return error instanceof Error && error.message.includes(" timed out after ")
+}
+
+function componentToHex(value: number): string {
+  return Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0")
+}
+
+function rgbToHex(r: number, g: number, b: number): ShellColor {
+  return `#${componentToHex(r)}${componentToHex(g)}${componentToHex(b)}`
+}
+
+function packedRgbToHex(value: number): ShellColor {
+  return rgbToHex((value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff)
+}
+
+function paletteToHex(index: number): ShellColor {
+  if (index >= 0 && index < ANSI_PALETTE.length) {
+    return ANSI_PALETTE[index]!
+  }
+
+  if (index >= 16 && index <= 231) {
+    const cubeIndex = index - 16
+    return rgbToHex(
+      CUBE_STEPS[Math.floor(cubeIndex / 36)] ?? 0,
+      CUBE_STEPS[Math.floor(cubeIndex / 6) % 6] ?? 0,
+      CUBE_STEPS[cubeIndex % 6] ?? 0,
+    )
+  }
+
+  if (index >= 232 && index <= 255) {
+    const value = 8 + (index - 232) * 10
+    return rgbToHex(value, value, value)
+  }
+
+  return "#ffffff"
+}
+
+function getCellColor(cell: TerminalCell, foreground: boolean): ShellColor | undefined {
+  if (foreground) {
+    if (cell.isFgRGB()) return packedRgbToHex(cell.getFgColor())
+    if (cell.isFgPalette()) return paletteToHex(cell.getFgColor())
+    return undefined
+  }
+
+  if (cell.isBgRGB()) return packedRgbToHex(cell.getBgColor())
+  if (cell.isBgPalette()) return paletteToHex(cell.getBgColor())
+  return undefined
+}
+
+function getCellStyle(cell: TerminalCell): ShellRunStyle {
+  const fg = getCellColor(cell, true)
+  const bg = getCellColor(cell, false)
+
+  return {
+    ...(fg ? { fg } : {}),
+    ...(bg ? { bg } : {}),
+    ...(cell.isBold() ? { bold: true } : {}),
+    ...(cell.isDim() ? { dim: true } : {}),
+    ...(cell.isItalic() ? { italic: true } : {}),
+    ...(cell.isUnderline() ? { underline: true } : {}),
+    ...(cell.isBlink() ? { blink: true } : {}),
+    ...(cell.isInverse() ? { inverse: true } : {}),
+    ...(cell.isInvisible() ? { hidden: true } : {}),
+    ...(cell.isStrikethrough() ? { strikethrough: true } : {}),
+  }
+}
+
+function styleKey(style: ShellRunStyle): string {
+  return [
+    style.fg ?? "",
+    style.bg ?? "",
+    style.bold ? "1" : "0",
+    style.dim ? "1" : "0",
+    style.italic ? "1" : "0",
+    style.underline ? "1" : "0",
+    style.blink ? "1" : "0",
+    style.inverse ? "1" : "0",
+    style.hidden ? "1" : "0",
+    style.strikethrough ? "1" : "0",
+  ].join("|")
+}
+
+function lineToRuns(line: TerminalLine | undefined, minColumns: number): ShellRow {
+  if (!line) {
+    return [{ text: " ".repeat(minColumns), columns: minColumns, style: {} }]
+  }
+
+  const runs: ShellRun[] = []
+  const cell = line.getCell(0)
+  const columns = Math.max(line.length, minColumns)
+  let previousKey = ""
+
+  for (let column = 0; column < columns; column += 1) {
+    const nextCell = line.getCell(column, cell)
+    if (!nextCell) continue
+
+    const width = nextCell.getWidth()
+    if (width === 0) continue
+
+    const style = getCellStyle(nextCell)
+    const text = style.hidden ? " " : nextCell.getChars() || " "
+    const key = styleKey(style)
+    const previous = runs.at(-1)
+
+    if (previous && previousKey === key) {
+      previous.text += text
+      previous.columns += width
+      continue
+    }
+
+    runs.push({ text, columns: width, style })
+    previousKey = key
+  }
+
+  return runs
 }
 
 function withTimeout<T>(promise: Promise<T>, options: Required<Pick<DockerRequestOptions, "timeoutMs" | "timeoutLabel">> & Pick<DockerRequestOptions, "signal">): Promise<T> {
@@ -354,11 +534,11 @@ export namespace ContainerShell {
     if (!terminal) return undefined
 
     const buffer = terminal.buffer.active
-    const rows: string[] = []
+    const rows: ShellRow[] = []
 
     if (buffer.type === "alternate") {
       for (let row = 0; row < terminal.rows; row += 1) {
-        rows.push(buffer.getLine(row)?.translateToString(false) ?? "")
+        rows.push(lineToRuns(buffer.getLine(row), terminal.cols))
       }
 
       return {
@@ -370,7 +550,7 @@ export namespace ContainerShell {
     }
 
     for (let row = 0; row < buffer.length; row += 1) {
-      rows.push(buffer.getLine(row)?.translateToString(false) ?? "")
+      rows.push(lineToRuns(buffer.getLine(row), terminal.cols))
     }
 
     return {
