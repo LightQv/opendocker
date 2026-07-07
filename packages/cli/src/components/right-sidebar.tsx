@@ -1,7 +1,7 @@
 import { $ } from "bun"
-import { createMemo, createSignal, For, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useApplication } from "@/context/application"
-import type { Container } from "@/context/application"
+import type { Container, ContainerStats } from "@/context/application"
 import { useTheme } from "@/context/theme"
 import { DockerV2 } from "@/lib/docker-v2"
 import { formatStatsMemory, formatStatsPercent, summarizeContainerStats, summarizeProjectStats } from "@/util/container-stats"
@@ -12,10 +12,21 @@ export default function RightSidebar(props: { overlay?: boolean }) {
   const [pwd, setPwd] = createSignal("")
   const [socket, setSocket] = createSignal("")
   const version = getVersion()
+  let projectStatsHydrationAbortController: AbortController | undefined
+  let projectStatsHydrationTimer: ReturnType<typeof setTimeout> | undefined
+  let projectStatsHydrationRun = 0
   const selectedProjectContainers = createMemo(() => {
     const project = app.activeContainerProject
     if (!project) return []
     return app.containers.filter(container => container.project === project)
+  })
+  const projectStatsHydrationKey = createMemo(() => {
+    if (app.activePane !== "containers") return ""
+    if (app.containerListMode !== "projects") return ""
+    return selectedProjectContainers()
+      .filter(container => container.state === "running")
+      .map(container => container.id)
+      .join(",")
   })
   const selectedContainer = createMemo(() => {
     if (app.shellFocused) return app.activeShellContainer
@@ -44,6 +55,20 @@ export default function RightSidebar(props: { overlay?: boolean }) {
     }
   })
 
+  onCleanup(() => {
+    stopProjectStatsHydration()
+  })
+
+  createEffect(on(
+    projectStatsHydrationKey,
+    (key) => {
+      untrack(() => {
+        stopProjectStatsHydration()
+        if (key) scheduleProjectStatsHydration(0)
+      })
+    },
+  ))
+
   async function getEndpoint() {
     const res = await DockerV2.getSocket()
     setSocket(res)
@@ -64,6 +89,87 @@ export default function RightSidebar(props: { overlay?: boolean }) {
 
   function summarizeStats(containers: Container[]) {
     return summarizeProjectStats(containers, app.containerStats)
+  }
+
+  function getMissingProjectStatsIds() {
+    if (app.activePane !== "containers") return []
+    if (app.containerListMode !== "projects") return []
+
+    return selectedProjectContainers()
+      .filter(container => container.state === "running" && !app.containerStats[container.id])
+      .map(container => container.id)
+  }
+
+  function mergeContainerStats(stats: Record<string, ContainerStats>) {
+    if (Object.keys(stats).length === 0) return
+
+    const runningContainerIds = new Set(
+      app.containers
+        .filter(container => container.state === "running")
+        .map(container => container.id),
+    )
+    const nextStats: Record<string, ContainerStats> = {}
+
+    for (const [containerId, value] of Object.entries({ ...app.containerStats, ...stats })) {
+      if (!runningContainerIds.has(containerId)) continue
+      nextStats[containerId] = value
+    }
+
+    app.setContainerStats(nextStats)
+  }
+
+  function clearProjectStatsHydrationTimer() {
+    if (!projectStatsHydrationTimer) return
+    clearTimeout(projectStatsHydrationTimer)
+    projectStatsHydrationTimer = undefined
+  }
+
+  function stopProjectStatsHydration() {
+    clearProjectStatsHydrationTimer()
+    projectStatsHydrationRun += 1
+    projectStatsHydrationAbortController?.abort()
+    projectStatsHydrationAbortController = undefined
+  }
+
+  function scheduleProjectStatsHydration(delay: number) {
+    clearProjectStatsHydrationTimer()
+    if (getMissingProjectStatsIds().length === 0) return
+
+    projectStatsHydrationTimer = setTimeout(() => {
+      hydrateProjectStats()
+    }, delay)
+  }
+
+  async function hydrateProjectStats() {
+    clearProjectStatsHydrationTimer()
+    const missingContainerIds = getMissingProjectStatsIds()
+    if (missingContainerIds.length === 0) return
+
+    projectStatsHydrationAbortController?.abort()
+    const controller = new AbortController()
+    projectStatsHydrationAbortController = controller
+    const run = ++projectStatsHydrationRun
+
+    try {
+      for (const containerId of missingContainerIds) {
+        if (controller.signal.aborted || run !== projectStatsHydrationRun) return
+        if (app.containerStats[containerId]) continue
+
+        const stats = await DockerV2.getContainerStats([containerId], controller.signal)
+          .catch(() => undefined)
+
+        if (controller.signal.aborted || run !== projectStatsHydrationRun) return
+        if (stats) mergeContainerStats(stats)
+      }
+    } finally {
+      if (projectStatsHydrationAbortController === controller) {
+        projectStatsHydrationAbortController = undefined
+      }
+
+      if (!controller.signal.aborted && run === projectStatsHydrationRun && getMissingProjectStatsIds().length > 0) {
+        scheduleProjectStatsHydration(2_000)
+      }
+    }
   }
 
   function StatLine(props: { label: string, value: string }) {
