@@ -510,8 +510,27 @@ function demuxDockerOutput(buffer: Buffer): string {
   return Buffer.concat(chunks).toString("utf8")
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
 async function detectShell(socketPath: string, containerId: string, preferredShell: string | undefined, options: DockerRequestOptions): Promise<string> {
-  if (preferredShell) return preferredShell
+  if (preferredShell) {
+    const quotedShell = shellQuote(preferredShell)
+    const output = await runExecCommand(socketPath, containerId, ["sh", "-lc", `command -v ${quotedShell} >/dev/null 2>&1 && printf %s ${quotedShell}`], {
+      ...options,
+      timeoutLabel: "Docker shell validation",
+    }).catch((error) => {
+      if (isShellCancellation(error) || isTimeout(error)) throw error
+      return ""
+    })
+
+    if (!output.trim()) {
+      throw new Error(`Shell "${preferredShell}" not found in container. Select auto or install ${preferredShell}.`)
+    }
+
+    return preferredShell
+  }
 
   const command = `for shell in ${SHELL_CANDIDATES.join(" ")}; do command -v "$shell" && exit 0; done; printf sh`
   const output = await runExecCommand(socketPath, containerId, ["sh", "-lc", command], {
@@ -610,7 +629,7 @@ export namespace ContainerShell {
         signal: pending.controller.signal,
         timeoutMs: pending.timeoutMs,
       }
-      const socketPath = await withTimeout(DockerV2.getSocket(), {
+      const socketPath = await withTimeout(DockerV2.getShellSocket(), {
         ...requestOptions,
         timeoutLabel: "Docker socket discovery",
       })

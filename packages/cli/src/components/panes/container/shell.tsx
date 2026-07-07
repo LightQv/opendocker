@@ -7,6 +7,7 @@ import { useTheme } from "@/context/theme"
 import { useDialog } from "@/ui/dialog"
 import { Pane } from "@/ui/pane"
 import { ContainerShell, type ShellRow, type ShellRun, type ShellRunStyle } from "@/lib/container-shell"
+import OptionsDialog from "@/components/dialogs/options"
 
 const PASTE_CHUNK_SIZE = 8_192
 const BRACKETED_PASTE_START = "\x1b[200~"
@@ -174,6 +175,14 @@ export default function Shell() {
       return
     }
 
+    if (leaderActive() && keybind.match("options_menu", key, true)) {
+      key.preventDefault()
+      key.stopPropagation()
+      setShellLeader(false)
+      dialog.replace(() => <OptionsDialog />)
+      return
+    }
+
     if (leaderActive()) {
       key.preventDefault()
       setShellLeader(false)
@@ -263,8 +272,11 @@ export default function Shell() {
   createEffect(() => {
     const containerId = app.shell.activeContainerId
     const size = terminalSize()
+    const status = app.activeShellSession?.status
     const generation = app.activeShellSession?.generation
+    const selectedShell = app.config.shell.selection === "auto" ? undefined : app.config.shell.selection
     if (!containerId || !size || generation === undefined) return
+    if (status !== "opening" && status !== "running") return
 
     const container = app.containers.find(item => item.id === containerId)
     if (!container) {
@@ -280,6 +292,7 @@ export default function Shell() {
 
     ContainerShell.create({
       containerId,
+      shell: selectedShell,
       cols: size.cols,
       rows: size.rows,
       onRender: () => {
@@ -296,6 +309,7 @@ export default function Shell() {
       },
     }).then(() => {
       if (!hasShellState(containerId, generation)) return
+      if (app.shell.sessions[containerId]?.status !== "opening") return
       app.markContainerShell(containerId, "running", null)
     }).catch(error => {
       if (!hasShellState(containerId, generation)) return

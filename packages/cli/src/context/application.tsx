@@ -2,7 +2,8 @@ import { z } from "zod"
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import type { Docker } from "@/lib/docker"
-import { KeybindsConfig } from "@/util/config"
+import { KeybindsConfig, ShellConfig, type ShellSelection } from "@/util/config"
+import { useKV } from "./kv"
 
 const Pane = z.enum(["containers", "images", "volumes"])
 type Pane = z.infer<typeof Pane>
@@ -63,6 +64,7 @@ export type Volume = z.infer<typeof Volume>
 type Config = {
   theme?: string,
   keybinds: KeybindsConfig,
+  shell: ShellConfig,
 }
 
 type ShellSessionStatus = "opening" | "running" | "exited" | "error"
@@ -109,6 +111,8 @@ function getViewForPane(pane: Pane): ActiveView {
 export const { use: useApplication, provider: ApplicationProvider } = createSimpleContext({
   name: "Application",
   init: () => {
+    const kv = useKV()
+    const parsedShell = ShellConfig.safeParse({ selection: kv.get("shell", "auto") })
     const [store, setStore] = createStore<{
       containers: Array<Container>
       images: Array<Image>
@@ -157,6 +161,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       },
       config: {
         keybinds: KeybindsConfig.parse({}),
+        shell: parsedShell.success ? parsedShell.data : ShellConfig.parse({}),
       },
     })
 
@@ -343,6 +348,11 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
           setStore("shell", "activeContainerId", null)
           setStore("activeView", { pane: "containers", focus: store.shell.returnFocus })
         }
+      },
+      setShellSelection: (selection: ShellSelection) => {
+        const shell = ShellConfig.parse({ selection })
+        setStore("config", "shell", shell)
+        kv.set("shell", selection)
       },
       setConfig: (v: Config) => setStore("config", v),
     }

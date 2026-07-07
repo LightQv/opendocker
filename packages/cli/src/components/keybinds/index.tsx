@@ -14,6 +14,7 @@ export default function Keybinds() {
   const app = useApplication()
 
   const right = createMemo<Config>(() => [
+    { label: "options", key: "options_menu" },
     { label: "themes", key: "theme_list" },
   ])
 

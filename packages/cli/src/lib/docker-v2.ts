@@ -94,7 +94,7 @@ export namespace DockerV2 {
     return context && context.length > 0 ? context : undefined
   }
 
-  async function readContextSocket(contextName: string): Promise<string | undefined> {
+  async function readContextHost(contextName: string): Promise<string | undefined> {
     const metaRoot = join(homedir(), ".docker", "contexts", "meta")
     const dirs = await readdir(metaRoot, { withFileTypes: true }).catch(() => [])
 
@@ -120,16 +120,19 @@ export namespace DockerV2 {
         continue
       }
 
-      const socketPath = toLocalSocketPath(host)
-      if (!socketPath) {
-        return undefined
-      }
-
-      if (await pathExists(socketPath)) {
-        return socketPath
-      }
+      return host
     }
 
+    return undefined
+  }
+
+  async function readContextSocket(contextName: string): Promise<string | undefined> {
+    const host = await readContextHost(contextName)
+    if (!host) return undefined
+
+    const socketPath = toLocalSocketPath(host)
+    if (!socketPath) return undefined
+    if (await pathExists(socketPath)) return socketPath
     return undefined
   }
 
@@ -240,6 +243,42 @@ export namespace DockerV2 {
       if (contextSocket) {
         return contextSocket
       }
+    }
+
+    for (const candidate of FALLBACK_LOCAL_SOCKETS) {
+      if (await pathExists(candidate)) {
+        return candidate
+      }
+    }
+
+    return DEFAULT_SOCKET
+  }
+
+  export async function getShellSocket(): Promise<string> {
+    const dockerHost = process.env.DOCKER_HOST?.trim()
+
+    if (dockerHost) {
+      const envSocket = toLocalSocketPath(dockerHost)
+      if (!envSocket) {
+        throw new Error(`Embedded shell supports local Docker sockets only. DOCKER_HOST uses ${dockerHost}.`)
+      }
+      if (await pathExists(envSocket)) return envSocket
+      throw new Error(`Docker socket not found: ${envSocket}`)
+    }
+
+    const contextName = await readDockerConfigContext()
+    if (contextName && contextName !== "default") {
+      const host = await readContextHost(contextName)
+      if (!host) {
+        throw new Error(`Embedded shell supports local Docker sockets only. Docker context "${contextName}" has no local socket.`)
+      }
+
+      const contextSocket = toLocalSocketPath(host)
+      if (!contextSocket) {
+        throw new Error(`Embedded shell supports local Docker sockets only. Docker context "${contextName}" uses ${host}.`)
+      }
+      if (await pathExists(contextSocket)) return contextSocket
+      throw new Error(`Docker context "${contextName}" socket not found: ${contextSocket}`)
     }
 
     for (const candidate of FALLBACK_LOCAL_SOCKETS) {

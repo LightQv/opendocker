@@ -12,6 +12,7 @@ import { ThemeProvider } from "@/context/theme"
 import { KVProvider } from "@/context/kv"
 import { DialogProvider, useDialog } from "@/ui/dialog"
 import ThemesDialog from "@/components/dialogs/themes"
+import OptionsDialog from "@/components/dialogs/options"
 import { ContainerShell } from "@/lib/container-shell"
 
 export function tui() {
@@ -45,6 +46,13 @@ function App() {
 
   useKeyboard(event => {
     if (dialog.stack.length > 0) return
+
+    if (keybind.match("options_menu", event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      dialog.replace(() => <OptionsDialog />)
+      return
+    }
 
     if (app.shellFocused) return
 
