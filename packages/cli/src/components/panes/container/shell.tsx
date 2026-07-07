@@ -1,12 +1,16 @@
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
-import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
-import { useKeyboard } from "@opentui/solid"
+import { decodePasteBytes, type ParsedKey, type PasteEvent, type ScrollBoxRenderable } from "@opentui/core"
+import { useKeyboard, usePaste } from "@opentui/solid"
 import { useApplication } from "@/context/application"
 import { useKeybind } from "@/context/keybind"
 import { useTheme } from "@/context/theme"
 import { useDialog } from "@/ui/dialog"
 import { Pane } from "@/ui/pane"
 import { ContainerShell } from "@/lib/container-shell"
+
+const PASTE_CHUNK_SIZE = 8_192
+const BRACKETED_PASTE_START = "\x1b[200~"
+const BRACKETED_PASTE_END = "\x1b[201~"
 
 export default function Shell() {
   const app = useApplication()
@@ -20,6 +24,9 @@ export default function Shell() {
   let removeViewportResize: (() => void) | undefined
   let measureTimer: ReturnType<typeof setTimeout> | undefined
   let leaderTimer: ReturnType<typeof setTimeout> | undefined
+  let pasteTimer: ReturnType<typeof setTimeout> | undefined
+  let pasteQueue = ""
+  let pasteTargetContainerId: string | null = null
   let lastMaxScrollTop = 0
   let lastActiveContainerId: string | null = null
   let lastAlternate = false
@@ -79,6 +86,65 @@ export default function Shell() {
     queueMicrotask(() => scrollToBottom())
   }
 
+  function normalizePaste(text: string) {
+    return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+  }
+
+  function clearPasteQueue() {
+    if (pasteTimer) clearTimeout(pasteTimer)
+    pasteTimer = undefined
+    pasteQueue = ""
+    pasteTargetContainerId = null
+  }
+
+  function flushPasteQueue() {
+    pasteTimer = undefined
+
+    if (!pasteTargetContainerId || !pasteQueue) {
+      clearPasteQueue()
+      return
+    }
+
+    if (!app.shellFocused || app.shell.activeContainerId !== pasteTargetContainerId) {
+      clearPasteQueue()
+      return
+    }
+
+    const chunk = pasteQueue.slice(0, PASTE_CHUNK_SIZE)
+    pasteQueue = pasteQueue.slice(PASTE_CHUNK_SIZE)
+    if (!ContainerShell.write(pasteTargetContainerId, chunk)) {
+      clearPasteQueue()
+      return
+    }
+
+    if (pasteQueue) {
+      pasteTimer = setTimeout(flushPasteQueue, 0)
+    } else {
+      pasteTargetContainerId = null
+    }
+  }
+
+  function writePaste(containerId: string, text: string) {
+    const normalized = normalizePaste(text)
+    if (!normalized) return
+
+    const data = ContainerShell.bracketedPasteMode(containerId)
+      ? `${BRACKETED_PASTE_START}${normalized}${BRACKETED_PASTE_END}`
+      : normalized
+
+    if (pasteTargetContainerId && pasteTargetContainerId !== containerId) {
+      clearPasteQueue()
+    }
+
+    pasteTargetContainerId = containerId
+    pasteQueue += data
+    resumeFollow()
+
+    if (!pasteTimer) {
+      flushPasteQueue()
+    }
+  }
+
   useKeyboard(key => {
     if (!app.shellFocused) return
     if (dialog.stack.length > 0) return
@@ -119,6 +185,18 @@ export default function Shell() {
     key.preventDefault()
     resumeFollow()
     ContainerShell.write(containerId, data)
+  })
+
+  usePaste((event: PasteEvent) => {
+    if (!app.shellFocused) return
+    if (dialog.stack.length > 0) return
+
+    const containerId = app.shell.activeContainerId
+    if (!containerId) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    writePaste(containerId, decodePasteBytes(event.bytes))
   })
 
   function getScrollSize() {
@@ -163,6 +241,7 @@ export default function Shell() {
     removeViewportResize?.()
     if (measureTimer) clearTimeout(measureTimer)
     if (leaderTimer) clearTimeout(leaderTimer)
+    clearPasteQueue()
   })
 
   function hasShellState(containerId: string, generation: number) {

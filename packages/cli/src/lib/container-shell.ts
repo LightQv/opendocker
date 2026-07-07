@@ -381,6 +381,10 @@ export namespace ContainerShell {
     }
   }
 
+  export function bracketedPasteMode(containerId: string): boolean {
+    return terminals.get(containerId)?.modes.bracketedPasteMode ?? false
+  }
+
   export async function create(options: CreateShellSessionOptions): Promise<ContainerShellSession> {
     const existing = sessions.get(options.containerId)
     if (existing) {
