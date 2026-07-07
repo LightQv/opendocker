@@ -1,5 +1,5 @@
 import { useKeyboard, useRenderer } from "@opentui/solid"
-import { ErrorBoundary, onMount } from "solid-js"
+import { createEffect, ErrorBoundary, onMount } from "solid-js"
 import { ErrorComponent } from "@/components/error-component"
 import { BaseLayout } from "@/layouts/base-layout"
 import LeftSidebar from "@/components/left-sidebar"
@@ -46,6 +46,8 @@ function App() {
   useKeyboard(event => {
     if (dialog.stack.length > 0) return
 
+    if (app.shellFocused) return
+
     if (
       event.name === "tab" &&
       app.activePane === "containers" &&
@@ -63,10 +65,6 @@ function App() {
     }
 
     if (app.filtering) return
-
-    if (app.shellFocused && keybind.match("container_shell_quit", event)) {
-      return
-    }
 
     if (keybind.match("app_exit", event)) {
       exit()
@@ -105,6 +103,20 @@ function App() {
   function setup() {
     checkForUpdates()
   }
+
+  createEffect(() => {
+    const containersById = new Map(app.containers.map(container => [container.id, container]))
+
+    for (const session of Object.values(app.shell.sessions)) {
+      if (!session) continue
+
+      const container = containersById.get(session.containerId)
+      if (container?.state === "running") continue
+
+      ContainerShell.quit(session.containerId)
+      app.closeContainerShell(session.containerId)
+    }
+  })
 
   onMount(() => {
     setup()

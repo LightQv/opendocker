@@ -72,11 +72,13 @@ type ShellSessionState = {
   status: ShellSessionStatus
   version: number
   error: string | null
+  generation: number
 }
 
 type ShellState = {
   activeContainerId: string | null
   sessions: Record<string, ShellSessionState>
+  generation: number
 }
 
 function getViewForPane(pane: Pane): ActiveView {
@@ -136,6 +138,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       shell: {
         activeContainerId: null,
         sessions: {},
+        generation: 0,
       },
       config: {
         keybinds: KeybindsConfig.parse({}),
@@ -274,11 +277,14 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       openContainerShell: (containerId: string) => {
         setStore("shell", "activeContainerId", containerId)
         if (!store.shell.sessions[containerId] || store.shell.sessions[containerId].status !== "running") {
+          const generation = store.shell.generation + 1
+          setStore("shell", "generation", generation)
           setStore("shell", "sessions", containerId, {
             containerId,
             status: "running",
             version: 0,
             error: null,
+            generation,
           })
         }
         setStore("activeView", { pane: "containers", focus: "shell" })
@@ -290,15 +296,18 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
           status,
           version: existing?.version ?? 0,
           error,
+          generation: existing?.generation ?? store.shell.generation,
         })
       },
       bumpContainerShellVersion: (containerId: string) => {
         const existing = store.shell.sessions[containerId]
+        if (!existing) return
         setStore("shell", "sessions", containerId, {
           containerId,
-          status: existing?.status ?? "running",
-          version: (existing?.version ?? 0) + 1,
-          error: existing?.error ?? null,
+          status: existing.status,
+          version: existing.version + 1,
+          error: existing.error,
+          generation: existing.generation,
         })
       },
       detachContainerShell: () => {

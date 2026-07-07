@@ -120,9 +120,9 @@ Footer behavior:
 
 - Logs shown: `<leader>e shell`
 - Logs shown for a container with an existing session: `<leader>e resume shell`
-- Shell focused: show `<leader>z logs`
+- Shell focused: show `<leader>z detach`
 - Shell focused: show `<leader>q quit`
-- Optionally show `ctrl+c interrupt`
+- Do not show `ctrl+c` / `ctrl+d`; they pass through as normal terminal controls.
 
 Left-side hints:
 
@@ -232,6 +232,8 @@ When shell is focused:
 - `<leader>q` quits the current shell session and returns to logs/list.
 - Escape behavior should be avoided for shell detach because many terminal programs use Escape.
 - `ctrl+z` and `ctrl+q` should pass through to the shell because they are real terminal controls.
+- While shell is focused, global app shortcuts must not consume terminal controls such as `ctrl+c` or `ctrl+d`.
+- While shell is focused, shell pane owns leader handling locally for `<leader>z` and `<leader>q`.
 
 Paste support can come later if OpenTUI exposes raw pasted text.
 
@@ -255,6 +257,8 @@ On panel size change:
 - Calculate columns and rows from the shell panel/scrollbox size.
 - Resize the xterm terminal and send Docker exec resize request.
 - Resize is idempotent; same `cols`/`rows` must not trigger render callbacks.
+- Shell creation waits for real viewport size; invalid early layout sizes are ignored.
+- The viewport resize event drives Docker exec resize, not the outer scrollbox wrapper.
 
 This matters for prompt wrapping and full-screen terminal programs.
 
@@ -282,6 +286,21 @@ Process exits:
 Container stop/remove:
 
 - Kill matching shell session.
+
+Container restart/recreate:
+
+- Kill matching shell session before the container is replaced or restarted.
+
+External container stop/remove:
+
+- Reconcile known shell sessions against refreshed container state and close sessions whose container is gone or no longer running.
+
+Pending shell creation:
+
+- Only one Docker exec may be pending per container.
+- Repeated opens while pending update callbacks and target size instead of spawning duplicate execs.
+- Quitting while pending cancels the pending create and ignores stale completion.
+- Per-open generation tokens prevent stale async create results from updating a later shell open for the same container.
 
 App exit:
 

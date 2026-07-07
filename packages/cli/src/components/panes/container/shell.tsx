@@ -15,8 +15,10 @@ export default function Shell() {
   const theme = useTheme().theme
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
   const [terminalSize, setTerminalSize] = createSignal<{ cols: number, rows: number }>()
+  const [leaderActive, setLeaderActive] = createSignal(false)
   let removeViewportResize: (() => void) | undefined
   let measureTimer: ReturnType<typeof setTimeout> | undefined
+  let leaderTimer: ReturnType<typeof setTimeout> | undefined
   const snapshot = createMemo(() => {
     app.activeShellSession?.version
     const containerId = app.shell.activeContainerId
@@ -44,6 +46,14 @@ export default function Shell() {
     return null
   }
 
+  function setShellLeader(active: boolean) {
+    if (leaderTimer) clearTimeout(leaderTimer)
+    setLeaderActive(active)
+    if (!active) return
+
+    leaderTimer = setTimeout(() => setLeaderActive(false), 2000)
+  }
+
   useKeyboard(key => {
     if (!app.shellFocused) return
     if (dialog.stack.length > 0) return
@@ -51,21 +61,30 @@ export default function Shell() {
     const containerId = app.shell.activeContainerId
     if (!containerId) return
 
-    if (keybind.match("leader", key)) {
+    if (keybind.match("leader", key, false)) {
       key.preventDefault()
+      setShellLeader(true)
       return
     }
 
-    if (keybind.match("container_shell_detach", key)) {
+    if (leaderActive() && keybind.match("container_shell_detach", key, true)) {
       key.preventDefault()
+      setShellLeader(false)
       app.detachContainerShell()
       return
     }
 
-    if (keybind.match("container_shell_quit", key)) {
+    if (leaderActive() && keybind.match("container_shell_quit", key, true)) {
       key.preventDefault()
+      setShellLeader(false)
       ContainerShell.quit(containerId)
       app.closeContainerShell(containerId)
+      return
+    }
+
+    if (leaderActive()) {
+      key.preventDefault()
+      setShellLeader(false)
       return
     }
 
@@ -111,12 +130,18 @@ export default function Shell() {
   onCleanup(() => {
     removeViewportResize?.()
     if (measureTimer) clearTimeout(measureTimer)
+    if (leaderTimer) clearTimeout(leaderTimer)
   })
+
+  function hasShellState(containerId: string, generation: number) {
+    return app.shell.sessions[containerId]?.generation === generation
+  }
 
   createEffect(() => {
     const containerId = app.shell.activeContainerId
     const size = terminalSize()
-    if (!containerId || !size) return
+    const generation = app.activeShellSession?.generation
+    if (!containerId || !size || generation === undefined) return
 
     const container = app.containers.find(item => item.id === containerId)
     if (!container) {
@@ -134,12 +159,24 @@ export default function Shell() {
       containerId,
       cols: size.cols,
       rows: size.rows,
-      onRender: () => app.bumpContainerShellVersion(containerId),
-      onExit: () => app.markContainerShell(containerId, "exited", null),
-      onError: error => app.markContainerShell(containerId, "error", error.message),
+      onRender: () => {
+        if (!hasShellState(containerId, generation)) return
+        app.bumpContainerShellVersion(containerId)
+      },
+      onExit: () => {
+        if (!hasShellState(containerId, generation)) return
+        app.markContainerShell(containerId, "exited", null)
+      },
+      onError: error => {
+        if (!hasShellState(containerId, generation)) return
+        app.markContainerShell(containerId, "error", error.message)
+      },
     }).then(() => {
+      if (!hasShellState(containerId, generation)) return
       app.markContainerShell(containerId, "running", null)
     }).catch(error => {
+      if (!hasShellState(containerId, generation)) return
+      if (error instanceof Error && error.message === "Shell creation cancelled") return
       app.markContainerShell(containerId, "error", error instanceof Error ? error.message : String(error))
     })
   })

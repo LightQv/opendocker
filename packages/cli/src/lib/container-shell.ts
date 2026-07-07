@@ -30,8 +30,17 @@ type ContainerShellCallbacks = {
   onError(error: Error): void
 }
 
+type PendingShellSession = {
+  promise: Promise<ContainerShellSession>
+  callbacks: ContainerShellCallbacks
+  cols: number
+  rows: number
+  cancelled: boolean
+}
+
 const sessions = new Map<string, ContainerShellSession>()
 const terminals = new Map<string, Terminal>()
+const pendingSessions = new Map<string, PendingShellSession>()
 
 const SHELL_CANDIDATES = ["bash", "zsh", "ash", "sh"]
 
@@ -209,80 +218,130 @@ export namespace ContainerShell {
       return existing
     }
 
-    const socketPath = await DockerV2.getSocket()
-    const shell = await detectShell(socketPath, options.containerId, options.shell)
-    const terminal = new Terminal({
+    const pending = pendingSessions.get(options.containerId)
+    if (pending) {
+      pending.callbacks = options
+      pending.cols = options.cols
+      pending.rows = options.rows
+      return pending.promise.then((session) => {
+        session.attach(options)
+        session.resize(options.cols, options.rows)
+        return session
+      })
+    }
+
+    const nextPending: PendingShellSession = {
+      callbacks: options,
       cols: options.cols,
       rows: options.rows,
-      allowProposedApi: true,
-      scrollback: 5_000,
-    })
-    const exec = await dockerRequest<{ Id: string }>(socketPath, `/containers/${options.containerId}/exec`, "POST", {
-      Cmd: [shell],
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-      Tty: true,
-      Env: ["TERM=xterm-256color"],
-    })
-    const stream = await startExecStream(socketPath, exec.Id)
-    let callbacks: ContainerShellCallbacks = options
-    let cols = options.cols
-    let rows = options.rows
-
-    let intentionalQuit = false
-    let finished = false
-    const finish = (callback: () => void) => {
-      if (finished) return
-      finished = true
-      sessions.delete(options.containerId)
-      if (!intentionalQuit) callback()
+      cancelled: false,
+      promise: undefined as unknown as Promise<ContainerShellSession>,
     }
 
-    const session: ContainerShellSession = {
-      containerId: options.containerId,
-      write(data: string) {
-        stream.write(data)
-      },
-      attach(nextCallbacks: ContainerShellCallbacks) {
-        callbacks = nextCallbacks
-      },
-      resize(nextCols: number, nextRows: number) {
-        if (cols === nextCols && rows === nextRows) return
-        cols = nextCols
-        rows = nextRows
-        terminal.resize(cols, rows)
-        dockerRequest(socketPath, `/exec/${exec.Id}/resize?h=${rows}&w=${cols}`, "POST").catch(() => {})
-        callbacks.onRender()
-      },
-      quit() {
-        intentionalQuit = true
+    pendingSessions.set(options.containerId, nextPending)
+    nextPending.promise = createNewSession(options.containerId, options.shell, nextPending)
+    return nextPending.promise
+  }
+
+  async function createNewSession(
+    containerId: string,
+    preferredShell: string | undefined,
+    pending: PendingShellSession,
+  ): Promise<ContainerShellSession> {
+    try {
+      const socketPath = await DockerV2.getSocket()
+      if (pending.cancelled) throw new Error("Shell creation cancelled")
+
+      const shell = await detectShell(socketPath, containerId, preferredShell)
+      if (pending.cancelled) throw new Error("Shell creation cancelled")
+
+      const terminal = new Terminal({
+        cols: pending.cols,
+        rows: pending.rows,
+        allowProposedApi: true,
+        scrollback: 5_000,
+      })
+      const exec = await dockerRequest<{ Id: string }>(socketPath, `/containers/${containerId}/exec`, "POST", {
+        Cmd: [shell],
+        AttachStdin: true,
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: true,
+        Env: ["TERM=xterm-256color"],
+      })
+
+      if (pending.cancelled) throw new Error("Shell creation cancelled")
+
+      const stream = await startExecStream(socketPath, exec.Id)
+      if (pending.cancelled) {
         stream.write("exit\n")
         stream.destroy()
-        sessions.delete(options.containerId)
-        terminals.delete(options.containerId)
-      },
+        throw new Error("Shell creation cancelled")
+      }
+
+      let callbacks = pending.callbacks
+      let cols = pending.cols
+      let rows = pending.rows
+
+      let intentionalQuit = false
+      let finished = false
+      const finish = (callback: () => void) => {
+        if (finished) return
+        finished = true
+        sessions.delete(containerId)
+        if (!intentionalQuit) callback()
+      }
+
+      const session: ContainerShellSession = {
+        containerId,
+        write(data: string) {
+          stream.write(data)
+        },
+        attach(nextCallbacks: ContainerShellCallbacks) {
+          callbacks = nextCallbacks
+        },
+        resize(nextCols: number, nextRows: number) {
+          if (cols === nextCols && rows === nextRows) return
+          cols = nextCols
+          rows = nextRows
+          terminal.resize(cols, rows)
+          dockerRequest(socketPath, `/exec/${exec.Id}/resize?h=${rows}&w=${cols}`, "POST").catch(() => {})
+          callbacks.onRender()
+        },
+        quit() {
+          intentionalQuit = true
+          stream.write("exit\n")
+          stream.destroy()
+          sessions.delete(containerId)
+          terminals.delete(containerId)
+        },
+      }
+
+      stream.on("data", (chunk: Buffer) => {
+        terminal.write(chunk.toString("utf8"), callbacks.onRender)
+      })
+      stream.on("error", (error: Error) => {
+        terminals.delete(containerId)
+        finish(() => callbacks.onError(error))
+      })
+      stream.on("close", () => {
+        terminals.delete(containerId)
+        finish(callbacks.onExit)
+      })
+      stream.on("end", () => {
+        terminals.delete(containerId)
+        finish(callbacks.onExit)
+      })
+
+      sessions.set(containerId, session)
+      terminals.set(containerId, terminal)
+      dockerRequest(socketPath, `/exec/${exec.Id}/resize?h=${rows}&w=${cols}`, "POST").catch(() => {})
+      return session
+    } finally {
+      if (pendingSessions.get(containerId) === pending) {
+        pendingSessions.delete(containerId)
+      }
     }
-
-    stream.on("data", (chunk: Buffer) => {
-      terminal.write(chunk.toString("utf8"), callbacks.onRender)
-    })
-    stream.on("error", (error: Error) => {
-      terminals.delete(options.containerId)
-      finish(() => callbacks.onError(error))
-    })
-    stream.on("close", () => {
-      terminals.delete(options.containerId)
-      finish(callbacks.onExit)
-    })
-    stream.on("end", () => {
-      terminals.delete(options.containerId)
-      finish(callbacks.onExit)
-    })
-
-    sessions.set(options.containerId, session)
-    terminals.set(options.containerId, terminal)
-    return session
   }
 
   export function write(containerId: string, data: string): boolean {
@@ -293,6 +352,12 @@ export namespace ContainerShell {
   }
 
   export function quit(containerId: string): void {
+    const pending = pendingSessions.get(containerId)
+    if (pending) {
+      pending.cancelled = true
+      pendingSessions.delete(containerId)
+    }
+
     const session = sessions.get(containerId)
     if (!session) return
     session.quit()
@@ -301,6 +366,13 @@ export namespace ContainerShell {
   }
 
   export function resize(containerId: string, cols: number, rows: number): boolean {
+    const pending = pendingSessions.get(containerId)
+    if (pending) {
+      pending.cols = cols
+      pending.rows = rows
+      return true
+    }
+
     const session = sessions.get(containerId)
     if (!session) return false
     session.resize(cols, rows)
@@ -308,7 +380,11 @@ export namespace ContainerShell {
   }
 
   export function quitAll(): void {
-    for (const containerId of sessions.keys()) {
+    for (const containerId of Array.from(pendingSessions.keys())) {
+      quit(containerId)
+    }
+
+    for (const containerId of Array.from(sessions.keys())) {
       quit(containerId)
     }
   }

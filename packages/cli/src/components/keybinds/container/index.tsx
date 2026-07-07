@@ -129,11 +129,19 @@ export default function ContainerKeybinds() {
       .catch(toast.error)
   }
 
-  function stopProject(containers: Container[]) {
+  function closeShellSessions(containers: Container[]) {
     for (const container of containers) {
       ContainerShell.quit(container.id)
       app.closeContainerShell(container.id)
     }
+  }
+
+  function closeShellSession(container: Container) {
+    closeShellSessions([container])
+  }
+
+  function stopProject(containers: Container[]) {
+    closeShellSessions(containers)
 
     const composeProject = getComposeProject(containers)
     if (composeProject) {
@@ -151,6 +159,7 @@ export default function ContainerKeybinds() {
       return
     }
 
+    closeShellSessions(containers)
     return DockerV2.restartComposeProject(composeProject)
       .catch(toast.error)
   }
@@ -161,6 +170,7 @@ export default function ContainerKeybinds() {
       return
     }
 
+    closeShellSessions(containers)
     return DockerV2.recreateComposeProject(composeProject)
       .catch(toast.error)
   }
@@ -190,10 +200,7 @@ export default function ContainerKeybinds() {
             variant: "info",
             message: "Removing project",
           })
-          for (const container of containers) {
-            ContainerShell.quit(container.id)
-            app.closeContainerShell(container.id)
-          }
+          closeShellSessions(containers)
           removeProject(containers)
         }}
       />
@@ -212,8 +219,7 @@ export default function ContainerKeybinds() {
             variant: "info",
             message: "Removing container",
           })
-          ContainerShell.quit(container.id)
-          app.closeContainerShell(container.id)
+          closeShellSession(container)
           DockerV2.removeContainer(container.id).catch(toast.error)
         }}
       />
@@ -266,8 +272,7 @@ export default function ContainerKeybinds() {
           variant: "info",
           message: "Stopping container",
         })
-        ContainerShell.quit(container.id)
-        app.closeContainerShell(container.id)
+        closeShellSession(container)
         DockerV2.stopContainer(container.id).catch(toast.error)
         return
       }
@@ -293,6 +298,7 @@ export default function ContainerKeybinds() {
         variant: "info",
         message: "Restarting container",
       })
+      closeShellSession(container)
       DockerV2.restartContainer(container.id).catch(toast.error)
       return
     }
@@ -312,6 +318,9 @@ export default function ContainerKeybinds() {
 
       const composeService = getComposeService(selected())
       if (!composeService) return
+
+      const container = selected()
+      if (container) closeShellSession(container)
 
       toast.show({
         variant: "info",
