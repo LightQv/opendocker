@@ -15,6 +15,7 @@ export type ContainerShellSnapshot = {
   rows: string[]
   cursorX: number
   cursorY: number
+  alternate: boolean
 }
 
 type CreateShellSessionOptions = {
@@ -354,14 +355,29 @@ export namespace ContainerShell {
 
     const buffer = terminal.buffer.active
     const rows: string[] = []
-    for (let row = 0; row < terminal.rows; row += 1) {
-      rows.push(buffer.getLine(buffer.viewportY + row)?.translateToString(false) ?? "")
+
+    if (buffer.type === "alternate") {
+      for (let row = 0; row < terminal.rows; row += 1) {
+        rows.push(buffer.getLine(row)?.translateToString(false) ?? "")
+      }
+
+      return {
+        rows,
+        cursorX: buffer.cursorX,
+        cursorY: buffer.cursorY,
+        alternate: true,
+      }
+    }
+
+    for (let row = 0; row < buffer.length; row += 1) {
+      rows.push(buffer.getLine(row)?.translateToString(false) ?? "")
     }
 
     return {
       rows,
       cursorX: buffer.cursorX,
-      cursorY: buffer.cursorY,
+      cursorY: buffer.baseY + buffer.cursorY,
+      alternate: false,
     }
   }
 

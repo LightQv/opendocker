@@ -16,9 +16,13 @@ export default function Shell() {
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
   const [terminalSize, setTerminalSize] = createSignal<{ cols: number, rows: number }>()
   const [leaderActive, setLeaderActive] = createSignal(false)
+  const [followingShell, setFollowingShell] = createSignal(true)
   let removeViewportResize: (() => void) | undefined
   let measureTimer: ReturnType<typeof setTimeout> | undefined
   let leaderTimer: ReturnType<typeof setTimeout> | undefined
+  let lastMaxScrollTop = 0
+  let lastActiveContainerId: string | null = null
+  let lastAlternate = false
   const snapshot = createMemo(() => {
     app.activeShellSession?.version
     const containerId = app.shell.activeContainerId
@@ -56,6 +60,23 @@ export default function Shell() {
     if (!active) return
 
     leaderTimer = setTimeout(() => setLeaderActive(false), 2000)
+  }
+
+  function getMaxScrollTop(scrollBox: ScrollBoxRenderable) {
+    return Math.max(0, scrollBox.scrollHeight - scrollBox.viewport.height)
+  }
+
+  function scrollToBottom(scrollBox = scroll()) {
+    if (!scrollBox) return
+
+    scrollBox.stickyScroll = false
+    scrollBox.scrollTo({ x: 0, y: scrollBox.scrollHeight })
+    lastMaxScrollTop = getMaxScrollTop(scrollBox)
+  }
+
+  function resumeFollow() {
+    setFollowingShell(true)
+    queueMicrotask(() => scrollToBottom())
   }
 
   useKeyboard(key => {
@@ -96,6 +117,7 @@ export default function Shell() {
     if (!data) return
 
     key.preventDefault()
+    resumeFollow()
     ContainerShell.write(containerId, data)
   })
 
@@ -127,8 +149,14 @@ export default function Shell() {
     setScroll(scrollBox)
     scrollBox.viewport.on("resize", updateTerminalSize)
     removeViewportResize = () => scrollBox.viewport.off("resize", updateTerminalSize)
-    queueMicrotask(updateTerminalSize)
-    measureTimer = setTimeout(updateTerminalSize, 0)
+    queueMicrotask(() => {
+      updateTerminalSize()
+      scrollToBottom(scrollBox)
+    })
+    measureTimer = setTimeout(() => {
+      updateTerminalSize()
+      scrollToBottom(scrollBox)
+    }, 0)
   }
 
   onCleanup(() => {
@@ -140,6 +168,17 @@ export default function Shell() {
   function hasShellState(containerId: string, generation: number) {
     return app.shell.sessions[containerId]?.generation === generation
   }
+
+  createEffect(() => {
+    const containerId = app.shell.activeContainerId
+    if (containerId === lastActiveContainerId) return
+
+    lastActiveContainerId = containerId
+    lastMaxScrollTop = 0
+    lastAlternate = false
+    setFollowingShell(true)
+    queueMicrotask(() => scrollToBottom())
+  })
 
   createEffect(() => {
     const containerId = app.shell.activeContainerId
@@ -186,11 +225,33 @@ export default function Shell() {
   })
 
   createEffect(() => {
-    snapshot()
+    const current = snapshot()
     const scrollBox = scroll()
-    if (!scrollBox) return
-    scrollBox.scrollTo({ x: 0, y: scrollBox.scrollHeight })
-    scrollBox.stickyScroll = true
+    if (!scrollBox || !current) return
+
+    if (current.alternate !== lastAlternate) {
+      lastAlternate = current.alternate
+      setFollowingShell(true)
+      scrollToBottom(scrollBox)
+      return
+    }
+
+    const previousMaxScrollTop = lastMaxScrollTop
+    const wasAtBottom = scrollBox.scrollTop >= previousMaxScrollTop - 1
+    const userScrolledUp = scrollBox.scrollTop < previousMaxScrollTop - 1
+
+    if (userScrolledUp) {
+      setFollowingShell(false)
+    }
+
+    if (followingShell() || wasAtBottom) {
+      setFollowingShell(true)
+      scrollToBottom(scrollBox)
+      return
+    }
+
+    scrollBox.stickyScroll = false
+    lastMaxScrollTop = getMaxScrollTop(scrollBox)
   })
 
   createEffect(() => {
@@ -244,7 +305,7 @@ export default function Shell() {
             <scrollbox
               ref={setScrollRef}
               scrollY={true}
-              stickyScroll={true}
+              stickyScroll={false}
               stickyStart="bottom"
               flexGrow={1}
               flexShrink={1}
