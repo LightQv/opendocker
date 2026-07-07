@@ -32,8 +32,6 @@ export default function Keybinds() {
             <ModeKeybinds items={[
               [keybind.print("container_shell_detach"), "detach"],
               [keybind.print("container_shell_quit"), "quit"],
-              ["ctrl+c", "interrupt"],
-              ["ctrl+d", "eof"],
             ]} />
           </Match>
           <Match when={app.logsFocused}>
