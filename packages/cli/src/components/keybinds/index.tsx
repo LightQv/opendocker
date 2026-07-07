@@ -30,7 +30,7 @@ export default function Keybinds() {
         <Switch>
           <Match when={app.shellFocused}>
             <ModeKeybinds items={[
-              [keybind.print("container_shell_detach"), "logs"],
+              [keybind.print("container_shell_detach"), "detach"],
               [keybind.print("container_shell_quit"), "quit"],
               ["ctrl+c", "interrupt"],
               ["ctrl+d", "eof"],
