@@ -36,6 +36,14 @@ type PendingShellSession = {
   cols: number
   rows: number
   cancelled: boolean
+  controller: AbortController
+  timeoutMs: number
+}
+
+type DockerRequestOptions = {
+  signal?: AbortSignal
+  timeoutMs?: number
+  timeoutLabel?: string
 }
 
 const sessions = new Map<string, ContainerShellSession>()
@@ -43,10 +51,80 @@ const terminals = new Map<string, Terminal>()
 const pendingSessions = new Map<string, PendingShellSession>()
 
 const SHELL_CANDIDATES = ["bash", "zsh", "ash", "sh"]
+const EXEC_TIMEOUT_MS = 8_000
+const SHELL_CREATION_CANCELLED = "Shell creation cancelled"
 
-function dockerRequest<T>(socketPath: string, path: string, method: string, body?: unknown): Promise<T> {
+function shellCancellationError(): Error {
+  return new Error(SHELL_CREATION_CANCELLED)
+}
+
+function timeoutError(label: string, timeoutMs: number): Error {
+  return new Error(`${label} timed out after ${timeoutMs}ms`)
+}
+
+function isShellCancellation(error: unknown): boolean {
+  return error instanceof Error && error.message === SHELL_CREATION_CANCELLED
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message.includes(" timed out after ")
+}
+
+function withTimeout<T>(promise: Promise<T>, options: Required<Pick<DockerRequestOptions, "timeoutMs" | "timeoutLabel">> & Pick<DockerRequestOptions, "signal">): Promise<T> {
+  if (options.signal?.aborted) return Promise.reject(shellCancellationError())
+
   return new Promise((resolve, reject) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout>
+    const abort = () => finishReject(shellCancellationError())
+    const cleanup = () => {
+      clearTimeout(timer)
+      options.signal?.removeEventListener("abort", abort)
+    }
+    const finishResolve = (value: T) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(value)
+    }
+    const finishReject = (error: unknown) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error)
+    }
+
+    timer = setTimeout(() => finishReject(timeoutError(options.timeoutLabel, options.timeoutMs)), options.timeoutMs)
+    options.signal?.addEventListener("abort", abort, { once: true })
+    promise.then(finishResolve, finishReject)
+  })
+}
+
+function dockerRequest<T>(socketPath: string, path: string, method: string, body?: unknown, options: DockerRequestOptions = {}): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(shellCancellationError())
+      return
+    }
+
     const data = body === undefined ? "" : JSON.stringify(body)
+    const timeoutMs = options.timeoutMs ?? EXEC_TIMEOUT_MS
+    const timeoutLabel = options.timeoutLabel ?? "Docker request"
+    let settled = false
+    let cleanupAbort = () => {}
+    const finishResolve = (value: T) => {
+      if (settled) return
+      settled = true
+      cleanupAbort()
+      resolve(value)
+    }
+    const finishReject = (error: unknown) => {
+      if (settled) return
+      settled = true
+      cleanupAbort()
+      reject(error)
+    }
+
     const req = http.request({
       socketPath,
       path,
@@ -61,29 +139,67 @@ function dockerRequest<T>(socketPath: string, path: string, method: string, body
       res.on("data", chunk => text += chunk)
       res.on("end", () => {
         if (res.statusCode && res.statusCode >= 400) {
-          reject(new Error(`Docker API ${res.statusCode}: ${text}`))
+          finishReject(new Error(`Docker API ${res.statusCode}: ${text}`))
           return
         }
 
         try {
-          resolve(JSON.parse(text) as T)
+          finishResolve(JSON.parse(text) as T)
         } catch (error) {
-          reject(error)
+          finishReject(error)
         }
       })
     })
 
-    req.on("error", reject)
+    const abort = () => req.destroy(shellCancellationError())
+    if (options.signal) {
+      options.signal.addEventListener("abort", abort, { once: true })
+      cleanupAbort = () => options.signal?.removeEventListener("abort", abort)
+    }
+
+    req.on("error", finishReject)
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(timeoutError(timeoutLabel, timeoutMs))
+    })
     req.end(data)
   })
 }
 
-function startExecStream(socketPath: string, execId: string): Promise<net.Socket> {
+function startExecStream(socketPath: string, execId: string, options: DockerRequestOptions = {}): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(shellCancellationError())
+      return
+    }
+
     const body = JSON.stringify({ Detach: false, Tty: true })
     const socket = net.createConnection(socketPath)
+    const timeoutMs = options.timeoutMs ?? EXEC_TIMEOUT_MS
+    const timeoutLabel = options.timeoutLabel ?? "Docker exec start"
     let header = Buffer.alloc(0)
     let connected = false
+    let settled = false
+    let cleanupAbort = () => {}
+    const finishResolve = () => {
+      if (settled) return
+      settled = true
+      cleanupAbort()
+      socket.setTimeout(0)
+      resolve(socket)
+    }
+    const finishReject = (error: unknown) => {
+      if (settled) return
+      settled = true
+      cleanupAbort()
+      socket.destroy()
+      reject(error)
+    }
+
+    const abort = () => finishReject(shellCancellationError())
+    if (options.signal) {
+      options.signal.addEventListener("abort", abort, { once: true })
+      cleanupAbort = () => options.signal?.removeEventListener("abort", abort)
+    }
 
     socket.on("connect", () => {
       socket.write([
@@ -107,34 +223,58 @@ function startExecStream(socketPath: string, execId: string): Promise<net.Socket
 
       const statusLine = header.subarray(0, marker).toString().split("\r\n")[0]
       if (!statusLine.includes("101")) {
-        reject(new Error(`Docker exec start failed: ${statusLine}`))
-        socket.destroy()
+        finishReject(new Error(`Docker exec start failed: ${statusLine}`))
         return
       }
 
       connected = true
       socket.removeAllListeners("data")
       const rest = header.subarray(marker + 4)
-      resolve(socket)
+      finishResolve()
       if (rest.length > 0) {
         queueMicrotask(() => socket.emit("data", rest))
       }
     })
 
-    socket.on("error", reject)
+    socket.on("error", finishReject)
+    socket.setTimeout(timeoutMs, () => {
+      finishReject(timeoutError(timeoutLabel, timeoutMs))
+    })
   })
 }
 
-async function runExecCommand(socketPath: string, containerId: string, command: string[]): Promise<string> {
+async function runExecCommand(socketPath: string, containerId: string, command: string[], options: DockerRequestOptions = {}): Promise<string> {
   const exec = await dockerRequest<{ Id: string }>(socketPath, `/containers/${containerId}/exec`, "POST", {
     Cmd: command,
     AttachStdout: true,
     AttachStderr: true,
     Tty: false,
-  })
+  }, options)
 
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(shellCancellationError())
+      return
+    }
+
     const body = JSON.stringify({ Detach: false, Tty: false })
+    const timeoutMs = options.timeoutMs ?? EXEC_TIMEOUT_MS
+    const timeoutLabel = options.timeoutLabel ?? "Docker exec command"
+    let settled = false
+    let cleanupAbort = () => {}
+    const finishResolve = (value: string) => {
+      if (settled) return
+      settled = true
+      cleanupAbort()
+      resolve(value)
+    }
+    const finishReject = (error: unknown) => {
+      if (settled) return
+      settled = true
+      cleanupAbort()
+      reject(error)
+    }
+
     const req = http.request({
       socketPath,
       path: `/exec/${exec.Id}/start`,
@@ -149,15 +289,24 @@ async function runExecCommand(socketPath: string, containerId: string, command: 
       res.on("data", chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
       res.on("end", () => {
         if (res.statusCode && res.statusCode >= 400) {
-          reject(new Error(`Docker exec command failed: ${res.statusCode}`))
+          finishReject(new Error(`Docker exec command failed: ${res.statusCode}`))
           return
         }
 
-        resolve(demuxDockerOutput(Buffer.concat(chunks)))
+        finishResolve(demuxDockerOutput(Buffer.concat(chunks)))
       })
     })
 
-    req.on("error", reject)
+    const abort = () => req.destroy(shellCancellationError())
+    if (options.signal) {
+      options.signal.addEventListener("abort", abort, { once: true })
+      cleanupAbort = () => options.signal?.removeEventListener("abort", abort)
+    }
+
+    req.on("error", finishReject)
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(timeoutError(timeoutLabel, timeoutMs))
+    })
     req.end(body)
   })
 }
@@ -180,11 +329,17 @@ function demuxDockerOutput(buffer: Buffer): string {
   return Buffer.concat(chunks).toString("utf8")
 }
 
-async function detectShell(socketPath: string, containerId: string, preferredShell?: string): Promise<string> {
+async function detectShell(socketPath: string, containerId: string, preferredShell: string | undefined, options: DockerRequestOptions): Promise<string> {
   if (preferredShell) return preferredShell
 
   const command = `for shell in ${SHELL_CANDIDATES.join(" ")}; do command -v "$shell" && exit 0; done; printf sh`
-  const output = await runExecCommand(socketPath, containerId, ["sh", "-lc", command]).catch(() => "sh")
+  const output = await runExecCommand(socketPath, containerId, ["sh", "-lc", command], {
+    ...options,
+    timeoutLabel: "Docker shell detection",
+  }).catch((error) => {
+    if (isShellCancellation(error) || isTimeout(error)) throw error
+    return "sh"
+  })
   return output.split("\n").map(line => line.trim()).find(Boolean) ?? "sh"
 }
 
@@ -235,6 +390,8 @@ export namespace ContainerShell {
       cols: options.cols,
       rows: options.rows,
       cancelled: false,
+      controller: new AbortController(),
+      timeoutMs: EXEC_TIMEOUT_MS,
       promise: undefined as unknown as Promise<ContainerShellSession>,
     }
 
@@ -249,11 +406,18 @@ export namespace ContainerShell {
     pending: PendingShellSession,
   ): Promise<ContainerShellSession> {
     try {
-      const socketPath = await DockerV2.getSocket()
-      if (pending.cancelled) throw new Error("Shell creation cancelled")
+      const requestOptions = {
+        signal: pending.controller.signal,
+        timeoutMs: pending.timeoutMs,
+      }
+      const socketPath = await withTimeout(DockerV2.getSocket(), {
+        ...requestOptions,
+        timeoutLabel: "Docker socket discovery",
+      })
+      if (pending.cancelled) throw shellCancellationError()
 
-      const shell = await detectShell(socketPath, containerId, preferredShell)
-      if (pending.cancelled) throw new Error("Shell creation cancelled")
+      const shell = await detectShell(socketPath, containerId, preferredShell, requestOptions)
+      if (pending.cancelled) throw shellCancellationError()
 
       const terminal = new Terminal({
         cols: pending.cols,
@@ -268,15 +432,20 @@ export namespace ContainerShell {
         AttachStderr: true,
         Tty: true,
         Env: ["TERM=xterm-256color"],
+      }, {
+        ...requestOptions,
+        timeoutLabel: "Docker exec create",
       })
 
-      if (pending.cancelled) throw new Error("Shell creation cancelled")
+      if (pending.cancelled) throw shellCancellationError()
 
-      const stream = await startExecStream(socketPath, exec.Id)
+      const stream = await startExecStream(socketPath, exec.Id, {
+        ...requestOptions,
+        timeoutLabel: "Docker exec start",
+      })
       if (pending.cancelled) {
-        stream.write("exit\n")
         stream.destroy()
-        throw new Error("Shell creation cancelled")
+        throw shellCancellationError()
       }
 
       let callbacks = pending.callbacks
@@ -285,14 +454,23 @@ export namespace ContainerShell {
 
       let intentionalQuit = false
       let finished = false
+      let session: ContainerShellSession
+      const clearSession = () => {
+        if (sessions.get(containerId) === session) {
+          sessions.delete(containerId)
+        }
+        if (terminals.get(containerId) === terminal) {
+          terminals.delete(containerId)
+        }
+      }
       const finish = (callback: () => void) => {
         if (finished) return
         finished = true
-        sessions.delete(containerId)
+        clearSession()
         if (!intentionalQuit) callback()
       }
 
-      const session: ContainerShellSession = {
+      session = {
         containerId,
         write(data: string) {
           stream.write(data)
@@ -310,10 +488,8 @@ export namespace ContainerShell {
         },
         quit() {
           intentionalQuit = true
-          stream.write("exit\n")
           stream.destroy()
-          sessions.delete(containerId)
-          terminals.delete(containerId)
+          clearSession()
         },
       }
 
@@ -321,15 +497,12 @@ export namespace ContainerShell {
         terminal.write(chunk.toString("utf8"), callbacks.onRender)
       })
       stream.on("error", (error: Error) => {
-        terminals.delete(containerId)
         finish(() => callbacks.onError(error))
       })
       stream.on("close", () => {
-        terminals.delete(containerId)
         finish(callbacks.onExit)
       })
       stream.on("end", () => {
-        terminals.delete(containerId)
         finish(callbacks.onExit)
       })
 
@@ -355,14 +528,13 @@ export namespace ContainerShell {
     const pending = pendingSessions.get(containerId)
     if (pending) {
       pending.cancelled = true
+      pending.controller.abort()
       pendingSessions.delete(containerId)
     }
 
     const session = sessions.get(containerId)
     if (!session) return
     session.quit()
-    sessions.delete(containerId)
-    terminals.delete(containerId)
   }
 
   export function resize(containerId: string, cols: number, rows: number): boolean {

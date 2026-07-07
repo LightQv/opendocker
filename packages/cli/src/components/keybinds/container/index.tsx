@@ -40,11 +40,15 @@ export default function ContainerKeybinds() {
         )
       }
     } else if (selected()) {
+      const container = selected()
       items.push(
         { label: "restart", key: "container_restart" },
-        { label: app.selectedContainerHasShellSession ? "resume shell" : "shell", key: "container_shell" },
         { label: "remove", key: "resource_remove" },
       )
+
+      if (canOpenShell(container)) {
+        items.splice(1, 0, { label: getShellLabel(container), key: "container_shell" })
+      }
 
       if (getComposeService(selected())) {
         items.push({ label: "recreate", key: "container_recreate" })
@@ -116,6 +120,23 @@ export default function ContainerKeybinds() {
       workingDir: container.composeWorkingDir,
       configFiles: container.composeConfigFiles,
     }
+  }
+
+  function getShellLabel(container: Container | undefined): "opening shell" | "resume shell" | "shell" {
+    if (!container) return "shell"
+
+    const status = app.shell.sessions[container.id]?.status
+    if (status === "opening") return "opening shell"
+    if (status === "running") return "resume shell"
+    return "shell"
+  }
+
+  function canOpenShell(container: Container | undefined): boolean {
+    if (!container) return false
+    if (container.state === "running") return true
+
+    const status = app.shell.sessions[container.id]?.status
+    return status === "opening" || status === "running"
   }
 
   function startProject(containers: Container[]) {
@@ -229,6 +250,19 @@ export default function ContainerKeybinds() {
   useKeyboard(key => {
     if (dialog.stack.length > 0) return
     if (app.activePane !== "containers") return
+
+    if (keybind.match("container_shell", key)) {
+      if (app.containerListMode !== "containers") return
+      if (app.filtering || app.editingSearch) return
+
+      const container = selected()
+      if (!container) return
+      if (!canOpenShell(container)) return
+
+      app.openContainerShell(container.id)
+      return
+    }
+
     if (app.rightPanelFocused) return
 
     if (keybind.match("container_start_stop", key)) {
@@ -327,16 +361,6 @@ export default function ContainerKeybinds() {
         message: "Recreating container",
       })
       DockerV2.recreateComposeService(composeService).catch(toast.error)
-      return
-    }
-
-    if (keybind.match("container_shell", key)) {
-      if (app.containerListMode !== "containers") return
-
-      const container = selected()
-      if (!container) return
-
-      app.openContainerShell(container.id)
       return
     }
 

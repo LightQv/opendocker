@@ -65,7 +65,7 @@ type Config = {
   keybinds: KeybindsConfig,
 }
 
-type ShellSessionStatus = "running" | "exited" | "error"
+type ShellSessionStatus = "opening" | "running" | "exited" | "error"
 
 type ShellSessionState = {
   containerId: string
@@ -79,6 +79,20 @@ type ShellState = {
   activeContainerId: string | null
   sessions: Record<string, ShellSessionState>
   generation: number
+  returnFocus: ContainerFocus
+}
+
+function normalizeShellReturnFocus(focus: ContainerFocus): ContainerFocus {
+  switch (focus) {
+    case "filter":
+    case "searchEdit":
+    case "searchActive":
+      return "logs"
+    case "shell":
+      return "list"
+    default:
+      return focus
+  }
 }
 
 function getViewForPane(pane: Pane): ActiveView {
@@ -139,6 +153,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
         activeContainerId: null,
         sessions: {},
         generation: 0,
+        returnFocus: "list",
       },
       config: {
         keybinds: KeybindsConfig.parse({}),
@@ -177,7 +192,8 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       },
       get selectedContainerHasShellSession() {
         if (!store.activeContainer) return false
-        return store.shell.sessions[store.activeContainer]?.status === "running"
+        const status = store.shell.sessions[store.activeContainer]?.status
+        return status === "opening" || status === "running"
       },
       get filtering() {
         return store.activeView.pane === "containers" && store.activeView.focus === "filter"
@@ -275,13 +291,20 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       setContainerSearchMatchCount: (id: string, value: number) => setStore("searchMatchCounts", id, value),
       setLogsPaused: (paused: boolean) => setStore("logsPaused", paused),
       openContainerShell: (containerId: string) => {
+        const returnFocus = store.activeView.pane === "containers"
+          ? normalizeShellReturnFocus(store.activeView.focus)
+          : "list"
+
         setStore("shell", "activeContainerId", containerId)
-        if (!store.shell.sessions[containerId] || store.shell.sessions[containerId].status !== "running") {
+        setStore("shell", "returnFocus", returnFocus)
+
+        const existing = store.shell.sessions[containerId]
+        if (!existing || existing.status === "exited" || existing.status === "error") {
           const generation = store.shell.generation + 1
           setStore("shell", "generation", generation)
           setStore("shell", "sessions", containerId, {
             containerId,
-            status: "running",
+            status: "opening",
             version: 0,
             error: null,
             generation,
@@ -312,13 +335,13 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       },
       detachContainerShell: () => {
         setStore("shell", "activeContainerId", null)
-        setStore("activeView", { pane: "containers", focus: "list" })
+        setStore("activeView", { pane: "containers", focus: store.shell.returnFocus })
       },
       closeContainerShell: (containerId: string) => {
         setStore("shell", "sessions", containerId, undefined!)
         if (store.shell.activeContainerId === containerId) {
           setStore("shell", "activeContainerId", null)
-          setStore("activeView", { pane: "containers", focus: "list" })
+          setStore("activeView", { pane: "containers", focus: store.shell.returnFocus })
         }
       },
       setConfig: (v: Config) => setStore("config", v),

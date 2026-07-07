@@ -25,6 +25,10 @@ export default function Shell() {
     if (!containerId) return undefined
     return ContainerShell.snapshot(containerId)
   })
+  const shellVisible = createMemo(() => {
+    const status = app.activeShellSession?.status
+    return status === "opening" || status === "running"
+  })
 
   function keyToData(key: ParsedKey): string | null {
     if (key.name === "return" || key.name === "enter") return "\n"
@@ -236,7 +240,7 @@ export default function Shell() {
           <Match when={app.activeShellSession?.status === "exited"}>
             <text fg={theme.textMuted}>Shell exited</text>
           </Match>
-          <Match when={app.activeShellSession?.status === "running"}>
+          <Match when={shellVisible()}>
             <scrollbox
               ref={setScrollRef}
               scrollY={true}
@@ -248,13 +252,15 @@ export default function Shell() {
             >
               <box width="100%" flexDirection="column">
                 <Show when={terminalSize()} fallback={<text fg={theme.textMuted}>Preparing shell...</text>}>
-                  <For each={snapshot()?.rows ?? []}>
-                    {(line, index) => (
-                      <box width="100%" flexShrink={0}>
-                        <text width="100%" fg={theme.textMuted} wrapMode="none">{renderLine(line, index())}</text>
-                      </box>
-                    )}
-                  </For>
+                  <Show when={snapshot()} fallback={<text fg={theme.textMuted}>Opening shell...</text>}>
+                    <For each={snapshot()?.rows ?? []}>
+                      {(line, index) => (
+                        <box width="100%" flexShrink={0}>
+                          <text width="100%" fg={theme.textMuted} wrapMode="none">{renderLine(line, index())}</text>
+                        </box>
+                      )}
+                    </For>
+                  </Show>
                 </Show>
               </box>
             </scrollbox>

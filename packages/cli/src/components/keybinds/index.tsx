@@ -84,10 +84,6 @@ export default function Keybinds() {
                     <text fg={theme.text}>tab</text>
                     <text fg={theme.textMuted}>logs</text>
                   </box>
-                  <box flexDirection="row" gap={1}>
-                    <text fg={theme.text}>{keybind.print("container_shell")}</text>
-                    <text fg={theme.textMuted}>{app.selectedContainerHasShellSession ? "resume shell" : "shell"}</text>
-                  </box>
                 </Match>
               </Match>
               <Match when={app.activePane === "images" && app.activeImage}>
