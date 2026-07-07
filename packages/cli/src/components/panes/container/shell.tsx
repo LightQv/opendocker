@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Match, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { useApplication } from "@/context/application"
@@ -15,6 +15,8 @@ export default function Shell() {
   const theme = useTheme().theme
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
   const [terminalSize, setTerminalSize] = createSignal<{ cols: number, rows: number }>()
+  let removeViewportResize: (() => void) | undefined
+  let measureTimer: ReturnType<typeof setTimeout> | undefined
   const snapshot = createMemo(() => {
     app.activeShellSession?.version
     const containerId = app.shell.activeContainerId
@@ -78,13 +80,16 @@ export default function Shell() {
     const scrollBox = scroll()
     if (!scrollBox) return undefined
 
+    const viewport = scrollBox.viewport
+    if (viewport.width < 20 || viewport.height < 5) return undefined
+
     return {
-      cols: Math.max(20, scrollBox.width - 1),
-      rows: Math.max(5, scrollBox.height),
+      cols: viewport.width,
+      rows: viewport.height,
     }
   }
 
-  createEffect(() => {
+  function updateTerminalSize() {
     const size = getScrollSize()
     if (!size) return
 
@@ -92,6 +97,20 @@ export default function Shell() {
     if (current?.cols === size.cols && current.rows === size.rows) return
 
     setTerminalSize(size)
+  }
+
+  function setScrollRef(scrollBox: ScrollBoxRenderable) {
+    removeViewportResize?.()
+    setScroll(scrollBox)
+    scrollBox.viewport.on("resize", updateTerminalSize)
+    removeViewportResize = () => scrollBox.viewport.off("resize", updateTerminalSize)
+    queueMicrotask(updateTerminalSize)
+    measureTimer = setTimeout(updateTerminalSize, 0)
+  }
+
+  onCleanup(() => {
+    removeViewportResize?.()
+    if (measureTimer) clearTimeout(measureTimer)
   })
 
   createEffect(() => {
@@ -110,8 +129,6 @@ export default function Shell() {
       app.markContainerShell(containerId, "error", "Container must be running")
       return
     }
-
-    if (ContainerShell.get(containerId)) return
 
     ContainerShell.create({
       containerId,
@@ -184,7 +201,7 @@ export default function Shell() {
           </Match>
           <Match when={app.activeShellSession?.status === "running"}>
             <scrollbox
-              ref={(r: ScrollBoxRenderable) => setScroll(r)}
+              ref={setScrollRef}
               scrollY={true}
               stickyScroll={true}
               stickyStart="bottom"
@@ -193,13 +210,15 @@ export default function Shell() {
               width="100%"
             >
               <box width="100%" flexDirection="column">
-                <For each={snapshot()?.rows ?? []}>
-                  {(line, index) => (
-                    <box width="100%" flexShrink={0}>
-                      <text width="100%" fg={theme.textMuted} wrapMode="none">{renderLine(line, index())}</text>
-                    </box>
-                  )}
-                </For>
+                <Show when={terminalSize()} fallback={<text fg={theme.textMuted}>Preparing shell...</text>}>
+                  <For each={snapshot()?.rows ?? []}>
+                    {(line, index) => (
+                      <box width="100%" flexShrink={0}>
+                        <text width="100%" fg={theme.textMuted} wrapMode="none">{renderLine(line, index())}</text>
+                      </box>
+                    )}
+                  </For>
+                </Show>
               </box>
             </scrollbox>
           </Match>
