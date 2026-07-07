@@ -2,8 +2,10 @@ import { DialogSelect, type DialogSelectOption } from "@/ui/dialog-select"
 import { useApplication } from "@/context/application"
 import { useDialog } from "@/ui/dialog"
 import { type ShellSelection } from "@/util/config"
+import ThemesDialog from "./themes"
+import { useKeybind } from "@/context/keybind"
 
-type OptionsValue = "shell.select"
+type SettingsValue = "shell.select" | "system.theme"
 
 const SHELL_OPTIONS: DialogSelectOption<ShellSelection>[] = [
   {
@@ -29,26 +31,38 @@ const SHELL_OPTIONS: DialogSelectOption<ShellSelection>[] = [
   },
 ]
 
-export default function OptionsDialog() {
+export default function SettingsDialog() {
   const app = useApplication()
   const dialog = useDialog()
+  const keybind = useKeybind()
 
-  const options: DialogSelectOption<OptionsValue>[] = [
+  const options: DialogSelectOption<SettingsValue>[] = [
     {
       title: "Select shell",
       value: "shell.select",
       category: "Shell",
       footer: app.config.shell.selection,
     },
+    {
+      title: "Switch theme",
+      value: "system.theme",
+      category: "System",
+      footer: keybind.print("theme_list"),
+    },
   ]
 
   return (
     <DialogSelect
-      title="Options"
+      title="Settings"
       options={options}
       onSelect={(option) => {
         if (option.value === "shell.select") {
           dialog.replace(() => <ShellSelectDialog />)
+          return
+        }
+
+        if (option.value === "system.theme") {
+          dialog.replace(() => <ThemesDialog title="Themes" />)
         }
       }}
     />

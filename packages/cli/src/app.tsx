@@ -12,7 +12,7 @@ import { ThemeProvider } from "@/context/theme"
 import { KVProvider } from "@/context/kv"
 import { DialogProvider, useDialog } from "@/ui/dialog"
 import ThemesDialog from "@/components/dialogs/themes"
-import OptionsDialog from "@/components/dialogs/options"
+import SettingsDialog from "@/components/dialogs/settings"
 import { ContainerShell } from "@/lib/container-shell"
 
 export function tui() {
@@ -47,14 +47,14 @@ function App() {
   useKeyboard(event => {
     if (dialog.stack.length > 0) return
 
-    if (keybind.match("options_menu", event)) {
+    if (app.shellFocused) return
+
+    if (keybind.match("open_settings", event)) {
       event.preventDefault()
       event.stopPropagation()
-      dialog.replace(() => <OptionsDialog />)
+      dialog.replace(() => <SettingsDialog />)
       return
     }
-
-    if (app.shellFocused) return
 
     if (
       event.name === "tab" &&

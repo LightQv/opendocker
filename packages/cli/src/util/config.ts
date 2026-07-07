@@ -4,7 +4,6 @@ export const KeybindsConfig = z.object({
   leader: z.string().optional().default("ctrl+x").describe("Leader key for keybind combinations"),
   app_exit: z.string().optional().default("ctrl+c,<leader>q").describe("Exit the application"),
   theme_list: z.string().optional().default("<leader>t").describe("Open theme picker"),
-  options_menu: z.string().optional().default("<leader>o").describe("Open options menu"),
   sidebar_toggle: z.string().optional().default("none").describe("Toggle sidebar"),
   up: z.string().optional().default("up,k").describe("Move up"),
   down: z.string().optional().default("down,j").describe("Move down"),

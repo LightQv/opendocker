@@ -13,9 +13,8 @@ export default function Keybinds() {
   const keybind = useKeybind()
   const app = useApplication()
 
-  const right = createMemo<Config>(() => [
-    { label: "options", key: "options_menu" },
-    { label: "themes", key: "theme_list" },
+  const right = createMemo<Config>(() => app.shellFocused ? [] : [
+    { label: "commands", key: "open_settings" },
   ])
 
   return (

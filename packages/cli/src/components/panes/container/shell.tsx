@@ -7,7 +7,6 @@ import { useTheme } from "@/context/theme"
 import { useDialog } from "@/ui/dialog"
 import { Pane } from "@/ui/pane"
 import { ContainerShell, type ShellRow, type ShellRun, type ShellRunStyle } from "@/lib/container-shell"
-import OptionsDialog from "@/components/dialogs/options"
 
 const PASTE_CHUNK_SIZE = 8_192
 const BRACKETED_PASTE_START = "\x1b[200~"
@@ -172,14 +171,6 @@ export default function Shell() {
       setShellLeader(false)
       ContainerShell.quit(containerId)
       app.closeContainerShell(containerId)
-      return
-    }
-
-    if (leaderActive() && keybind.match("options_menu", key, true)) {
-      key.preventDefault()
-      key.stopPropagation()
-      setShellLeader(false)
-      dialog.replace(() => <OptionsDialog />)
       return
     }
 
@@ -467,18 +458,25 @@ export default function Shell() {
       width="100%"
       flexGrow={1}
       height="100%"
+      active={true}
       borderColor={() => app.shellFocused ? theme.border : theme.backgroundPanel}
     >
-      <box width="100%" paddingLeft={1} paddingRight={1} flexGrow={1} flexShrink={1} flexDirection="column">
+      <box width="100%" height="100%" paddingLeft={1} paddingRight={1} flexGrow={1} flexShrink={1} flexDirection="column">
         <Switch>
           <Match when={!app.shell.activeContainerId}>
-            <text fg={theme.textMuted}>Open a container shell with {keybind.print("container_shell")}</text>
+            <box width="100%" height="100%">
+              <text fg={theme.textMuted}>Open a container shell with {keybind.print("container_shell")}</text>
+            </box>
           </Match>
           <Match when={app.activeShellSession?.status === "error"}>
-            <text fg={theme.error}>{app.activeShellSession?.error ?? "Failed to start shell"}</text>
+            <box width="100%" height="100%">
+              <text fg={theme.error}>{app.activeShellSession?.error ?? "Failed to start shell"}</text>
+            </box>
           </Match>
           <Match when={app.activeShellSession?.status === "exited"}>
-            <text fg={theme.textMuted}>Shell exited</text>
+            <box width="100%" height="100%">
+              <text fg={theme.textMuted}>Shell exited</text>
+            </box>
           </Match>
           <Match when={shellVisible()}>
             <scrollbox
