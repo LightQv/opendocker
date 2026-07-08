@@ -11,6 +11,9 @@ export const KeybindsConfig = z.object({
   container_start_stop: z.string().optional().default("<leader>s").describe("Start/Stop a container"),
   container_restart: z.string().optional().default("<leader>r").describe("Restart a container or project"),
   container_recreate: z.string().optional().default("<leader>b").describe("Recreate a container or project"),
+  container_shell: z.string().optional().default("<leader>e").describe("Open or resume a container shell"),
+  container_shell_detach: z.string().optional().default("<leader>z").describe("Detach from the active container shell"),
+  container_shell_quit: z.string().optional().default("<leader>q").describe("Quit the active container shell"),
   resource_remove: z.string().optional().default("<leader>d").describe("Remove selected resource"),
   open_settings: z.string().optional().default("ctrl+p").describe("Open settings"),
   focus_containers: z.string().optional().default("1").describe("Focus containers pane"),
@@ -19,3 +22,11 @@ export const KeybindsConfig = z.object({
 })
 
 export type KeybindsConfig = z.infer<typeof KeybindsConfig>
+
+export const ShellSelection = z.enum(["auto", "bash", "zsh", "ash", "sh"])
+export type ShellSelection = z.infer<typeof ShellSelection>
+
+export const ShellConfig = z.object({
+  selection: ShellSelection.optional().default("auto").describe("Embedded shell command selection"),
+})
+export type ShellConfig = z.infer<typeof ShellConfig>

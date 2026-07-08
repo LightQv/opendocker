@@ -2,12 +2,13 @@ import { z } from "zod"
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import type { Docker } from "@/lib/docker"
-import { KeybindsConfig } from "@/util/config"
+import { KeybindsConfig, ShellConfig, type ShellSelection } from "@/util/config"
+import { useKV } from "./kv"
 
 const Pane = z.enum(["containers", "images", "volumes"])
 type Pane = z.infer<typeof Pane>
 
-const ContainerFocus = z.enum(["list", "logs", "filter", "searchEdit", "searchActive"])
+const ContainerFocus = z.enum(["list", "logs", "filter", "searchEdit", "searchActive", "shell"])
 type ContainerFocus = z.infer<typeof ContainerFocus>
 
 const ActiveView = z.discriminatedUnion("pane", [
@@ -63,6 +64,37 @@ export type Volume = z.infer<typeof Volume>
 type Config = {
   theme?: string,
   keybinds: KeybindsConfig,
+  shell: ShellConfig,
+}
+
+type ShellSessionStatus = "opening" | "running" | "exited" | "error"
+
+type ShellSessionState = {
+  containerId: string
+  status: ShellSessionStatus
+  version: number
+  error: string | null
+  generation: number
+}
+
+type ShellState = {
+  activeContainerId: string | null
+  sessions: Record<string, ShellSessionState>
+  generation: number
+  returnFocus: ContainerFocus
+}
+
+function normalizeShellReturnFocus(focus: ContainerFocus): ContainerFocus {
+  switch (focus) {
+    case "filter":
+    case "searchEdit":
+    case "searchActive":
+      return "logs"
+    case "shell":
+      return "list"
+    default:
+      return focus
+  }
 }
 
 function getViewForPane(pane: Pane): ActiveView {
@@ -79,6 +111,8 @@ function getViewForPane(pane: Pane): ActiveView {
 export const { use: useApplication, provider: ApplicationProvider } = createSimpleContext({
   name: "Application",
   init: () => {
+    const kv = useKV()
+    const parsedShell = ShellConfig.safeParse({ selection: kv.get("shell", "auto") })
     const [store, setStore] = createStore<{
       containers: Array<Container>
       images: Array<Image>
@@ -98,6 +132,7 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       searchIndexes: Record<string, number>
       searchMatchCounts: Record<string, number>
       logsPaused: boolean
+      shell: ShellState
       config: Config
     }>({
       containers: [],
@@ -118,8 +153,15 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       searchIndexes: {},
       searchMatchCounts: {},
       logsPaused: false,
+      shell: {
+        activeContainerId: null,
+        sessions: {},
+        generation: 0,
+        returnFocus: "list",
+      },
       config: {
         keybinds: KeybindsConfig.parse({}),
+        shell: parsedShell.success ? parsedShell.data : ShellConfig.parse({}),
       },
     })
 
@@ -140,6 +182,24 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get searchIndexes() { return store.searchIndexes },
       get searchMatchCounts() { return store.searchMatchCounts },
       get logsPaused() { return store.logsPaused },
+      get shell() { return store.shell },
+      get shellFocused() {
+        return store.activeView.pane === "containers" && store.activeView.focus === "shell"
+      },
+      get activeShellContainer() {
+        if (!store.shell.activeContainerId) return undefined
+        return store.containers.find(container => container.id === store.shell.activeContainerId)
+      },
+      get activeShellSession() {
+        const containerId = store.shell.activeContainerId
+        if (!containerId) return undefined
+        return store.shell.sessions[containerId]
+      },
+      get selectedContainerHasShellSession() {
+        if (!store.activeContainer) return false
+        const status = store.shell.sessions[store.activeContainer]?.status
+        return status === "opening" || status === "running"
+      },
       get filtering() {
         return store.activeView.pane === "containers" && store.activeView.focus === "filter"
       },
@@ -235,6 +295,65 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       setContainerSearchIndex: (id: string, value: number) => setStore("searchIndexes", id, value),
       setContainerSearchMatchCount: (id: string, value: number) => setStore("searchMatchCounts", id, value),
       setLogsPaused: (paused: boolean) => setStore("logsPaused", paused),
+      openContainerShell: (containerId: string) => {
+        const returnFocus = store.activeView.pane === "containers"
+          ? normalizeShellReturnFocus(store.activeView.focus)
+          : "list"
+
+        setStore("shell", "activeContainerId", containerId)
+        setStore("shell", "returnFocus", returnFocus)
+
+        const existing = store.shell.sessions[containerId]
+        if (!existing || existing.status === "exited" || existing.status === "error") {
+          const generation = store.shell.generation + 1
+          setStore("shell", "generation", generation)
+          setStore("shell", "sessions", containerId, {
+            containerId,
+            status: "opening",
+            version: 0,
+            error: null,
+            generation,
+          })
+        }
+        setStore("activeView", { pane: "containers", focus: "shell" })
+      },
+      markContainerShell: (containerId: string, status: ShellSessionStatus, error: string | null = null) => {
+        const existing = store.shell.sessions[containerId]
+        setStore("shell", "sessions", containerId, {
+          containerId,
+          status,
+          version: existing?.version ?? 0,
+          error,
+          generation: existing?.generation ?? store.shell.generation,
+        })
+      },
+      bumpContainerShellVersion: (containerId: string) => {
+        const existing = store.shell.sessions[containerId]
+        if (!existing) return
+        setStore("shell", "sessions", containerId, {
+          containerId,
+          status: existing.status,
+          version: existing.version + 1,
+          error: existing.error,
+          generation: existing.generation,
+        })
+      },
+      detachContainerShell: () => {
+        setStore("shell", "activeContainerId", null)
+        setStore("activeView", { pane: "containers", focus: store.shell.returnFocus })
+      },
+      closeContainerShell: (containerId: string) => {
+        setStore("shell", "sessions", containerId, undefined!)
+        if (store.shell.activeContainerId === containerId) {
+          setStore("shell", "activeContainerId", null)
+          setStore("activeView", { pane: "containers", focus: store.shell.returnFocus })
+        }
+      },
+      setShellSelection: (selection: ShellSelection) => {
+        const shell = ShellConfig.parse({ selection })
+        setStore("config", "shell", shell)
+        kv.set("shell", selection)
+      },
       setConfig: (v: Config) => setStore("config", v),
     }
   },

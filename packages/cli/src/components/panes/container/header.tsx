@@ -17,6 +17,11 @@ export default function Header() {
   const [selected, setSelected] = createSignal<Container>()
 
   createEffect(() => {
+    if (app.shellFocused) {
+      setSelected(app.activeShellContainer)
+      return
+    }
+
     setSelected(
       app.containers.find((c: Container) => c.id === app.activeContainer)
     )
@@ -34,7 +39,7 @@ export default function Header() {
     { label: "Name", value: () => selected()?.name },
     { label: "Status", value: () => selected()?.status },
     { label: "State", value: () => selected()?.state },
-    { label: "Mode", value: () => "logs" },
+    { label: "Mode", value: () => app.shellFocused ? "shell" : "logs" },
   ]
 
   return (

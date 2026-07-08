@@ -13,8 +13,8 @@ export default function Keybinds() {
   const keybind = useKeybind()
   const app = useApplication()
 
-  const right = createMemo<Config>(() => [
-    { label: "themes", key: "theme_list" },
+  const right = createMemo<Config>(() => app.shellFocused ? [] : [
+    { label: "commands", key: "open_settings" },
   ])
 
   return (
@@ -28,6 +28,12 @@ export default function Keybinds() {
     >
       <box flexDirection="row" gap={2}>
         <Switch>
+          <Match when={app.shellFocused}>
+            <ModeKeybinds items={[
+              [keybind.print("container_shell_detach"), "detach"],
+              [keybind.print("container_shell_quit"), "quit"],
+            ]} />
+          </Match>
           <Match when={app.logsFocused}>
             <ModeKeybinds items={[
               ["tab", "back"],

@@ -1,5 +1,5 @@
 import { useKeyboard, useRenderer } from "@opentui/solid"
-import { ErrorBoundary, onMount } from "solid-js"
+import { createEffect, ErrorBoundary, onMount } from "solid-js"
 import { ErrorComponent } from "@/components/error-component"
 import { BaseLayout } from "@/layouts/base-layout"
 import LeftSidebar from "@/components/left-sidebar"
@@ -12,6 +12,8 @@ import { ThemeProvider } from "@/context/theme"
 import { KVProvider } from "@/context/kv"
 import { DialogProvider, useDialog } from "@/ui/dialog"
 import ThemesDialog from "@/components/dialogs/themes"
+import SettingsDialog from "@/components/dialogs/settings"
+import { ContainerShell } from "@/lib/container-shell"
 
 export function tui() {
   return (
@@ -44,6 +46,15 @@ function App() {
 
   useKeyboard(event => {
     if (dialog.stack.length > 0) return
+
+    if (app.shellFocused) return
+
+    if (keybind.match("open_settings", event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      dialog.replace(() => <SettingsDialog />)
+      return
+    }
 
     if (
       event.name === "tab" &&
@@ -85,6 +96,7 @@ function App() {
   })
 
   function exit() {
+    ContainerShell.quitAll()
     renderer.setTerminalTitle("")
     renderer.destroy()
     process.exit(0)
@@ -99,6 +111,20 @@ function App() {
   function setup() {
     checkForUpdates()
   }
+
+  createEffect(() => {
+    const containersById = new Map(app.containers.map(container => [container.id, container]))
+
+    for (const session of Object.values(app.shell.sessions)) {
+      if (!session) continue
+
+      const container = containersById.get(session.containerId)
+      if (container?.state === "running") continue
+
+      ContainerShell.quit(session.containerId)
+      app.closeContainerShell(session.containerId)
+    }
+  })
 
   onMount(() => {
     setup()
