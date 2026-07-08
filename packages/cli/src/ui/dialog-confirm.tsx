@@ -28,8 +28,8 @@ export function DialogConfirm(props: {
   }
 
   function confirm() {
-    dialog.clear()
     props.onConfirm()
+    dialog.clear()
   }
 
   function select() {
