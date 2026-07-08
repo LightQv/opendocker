@@ -1,7 +1,6 @@
 import { z } from "zod"
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "./helper"
-import type { Docker } from "@/lib/docker"
 import { KeybindsConfig, ShellConfig, type ShellSelection } from "@/util/config"
 import { useKV } from "./kv"
 
@@ -144,7 +143,6 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       activeImage: string | null
       activeVolume: string | null
       rightSidebarOpen: boolean
-      docker: Docker | null
       activeView: ActiveView
       previousContainerFocus: ContainerFocus
       returnToLogsAfterSearch: boolean
@@ -166,7 +164,6 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       activeImage: null,
       activeVolume: null,
       rightSidebarOpen: false,
-      docker: null,
       activeView: { pane: "containers", focus: "list" },
       previousContainerFocus: "list",
       returnToLogsAfterSearch: false,
@@ -198,7 +195,6 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       get activeImage() { return store.activeImage },
       get activeVolume() { return store.activeVolume },
       get rightSidebarOpen() { return store.rightSidebarOpen },
-      get docker() { return store.docker },
       get activePane() { return store.activeView.pane },
       get filters() { return store.filters },
       get searches() { return store.searches },
@@ -267,7 +263,6 @@ export const { use: useApplication, provider: ApplicationProvider } = createSimp
       setActiveImage: (v: string | null) => setStore("activeImage", v),
       setActiveVolume: (v: string | null) => setStore("activeVolume", v),
       toggleRightSidebar: () => setStore("rightSidebarOpen", open => !open),
-      setDocker: (v: Docker | null) => setStore("docker", v),
       focusContainers: () => setStore("activeView", getViewForPane("containers")),
       focusImages: () => setStore("activeView", getViewForPane("images")),
       focusVolumes: () => setStore("activeView", getViewForPane("volumes")),

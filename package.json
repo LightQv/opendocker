@@ -11,8 +11,5 @@
   },
   "workspaces": [
     "packages/*"
-  ],
-  "devDependencies": {
-    "@opencode-ai/sdk": "1.4.3"
-  }
+  ]
 }

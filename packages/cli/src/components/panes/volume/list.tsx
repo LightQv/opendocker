@@ -105,7 +105,7 @@ export default function List() {
                         variant: 'info',
                         message: 'Removing volume',
                     });
-                    app.docker?.removeVolume(volume.name).catch(toast.error);
+                    DockerV2.removeVolume(volume.name).catch(toast.error);
                 }}
             />
         ));

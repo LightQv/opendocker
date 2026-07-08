@@ -12,6 +12,8 @@ export namespace DockerV2 {
   const FALLBACK_LOCAL_SOCKETS = [
     "/var/run/docker.sock",
     join(homedir(), ".docker", "run", "docker.sock"),
+    join(homedir(), ".colima", "default", "docker.sock"),
+    join(homedir(), ".orbstack", "run", "docker.sock"),
   ]
 
   const DockerConfigSchema = z.object({
@@ -48,6 +50,15 @@ export namespace DockerV2 {
     RepoTags?: string[] | null
     Size: number
     Created: number
+  }
+
+  export interface ImageHistoryItem {
+    Id: string
+    Created: number
+    CreatedBy: string
+    Size: number
+    Comment: string
+    Tags: string[] | null
   }
 
   interface DockerVolume {
@@ -541,6 +552,25 @@ export namespace DockerV2 {
       .sort((a, b) => a.name.localeCompare(b.name))
   }
 
+  export async function getImageHistory(imageId: string): Promise<ImageHistoryItem[]> {
+    const socketPath = await getSocket()
+    const raw = await request(socketPath, `/images/${encodeURIComponent(imageId)}/history`)
+    const parsed = z.array(z.object({
+      Id: z.string(),
+      Created: z.number(),
+      CreatedBy: z.string(),
+      Size: z.number(),
+      Comment: z.string(),
+      Tags: z.array(z.string()).nullable(),
+    }).passthrough()).safeParse(raw)
+
+    if (!parsed.success) {
+      return []
+    }
+
+    return parsed.data
+  }
+
   export async function getVolumes(): Promise<Volume[]> {
     const socketPath = await getSocket()
     const raw = await request(socketPath, "/volumes")
@@ -612,6 +642,14 @@ export namespace DockerV2 {
 
   export async function removeContainer(container: string): Promise<void> {
     await runDocker(["rm", container])
+  }
+
+  export async function removeImage(image: string): Promise<void> {
+    await runDocker(["image", "rm", image])
+  }
+
+  export async function removeVolume(volume: string): Promise<void> {
+    await runDocker(["volume", "rm", volume])
   }
 
   export async function stopContainers(containers: string[]): Promise<void> {

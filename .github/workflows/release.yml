@@ -1,0 +1,109 @@
+name: release
+run-name: "${{ format('release {0}', inputs.version || inputs.bump || 'patch') }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Bump major, minor, or patch"
+        required: false
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+      version:
+        description: "Override version, without or with v prefix"
+        required: false
+        type: string
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version || inputs.bump || 'patch' }}
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Prepare version
+        id: version
+        run: ./script/version.ts
+        env:
+          OPENDOCKER_BUMP: ${{ inputs.bump }}
+          OPENDOCKER_VERSION: ${{ inputs.version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opendocker-release-notes
+          path: ${{ steps.version.outputs.notes_file }}
+
+  build:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build release assets
+        run: ./packages/cli/scripts/build.ts --all --archive
+        env:
+          OPENDOCKER_VERSION: ${{ needs.version.outputs.version }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opendocker-release-assets
+          path: |
+            packages/cli/dist/*.zip
+            packages/cli/dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - version
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: opendocker-release-assets
+          path: release-assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: opendocker-release-notes
+          path: release-notes
+
+      - name: Add installer and checksums
+        run: |
+          cp install.sh release-assets/install.sh
+          cd release-assets
+          shasum -a 256 * > checksums.txt
+
+      - name: Publish GitHub release
+        run: |
+          gh release create "${{ needs.version.outputs.tag }}" \
+            release-assets/* \
+            --title "${{ needs.version.outputs.tag }}" \
+            --target "${{ github.sha }}" \
+            --notes-file release-notes/opendocker-release-notes.txt
+        env:
+          GH_TOKEN: ${{ github.token }}

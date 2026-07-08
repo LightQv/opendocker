@@ -18,6 +18,7 @@ import pkg from "../package.json"
 const singleFlag = process.argv.includes("--single") || (!!process.env.CI && !process.argv.includes("--all"))
 const baselineFlag = process.argv.includes("--baseline")
 const skipInstall = process.argv.includes("--skip-install")
+const archiveFlag = process.argv.includes("--archive")
 
 const allTargets: {
   os: string
@@ -64,15 +65,6 @@ const allTargets: {
   },
   {
     os: "darwin",
-    arch: "x64",
-    avx2: false,
-  },
-  {
-    os: "win32",
-    arch: "x64",
-  },
-  {
-    os: "win32",
     arch: "x64",
     avx2: false,
   },
@@ -167,7 +159,7 @@ for (const item of targets) {
   console.log(`✓ ${name} built successfully`)
 }
 
-if (Script.release) {
+if (archiveFlag) {
   for (const key of Object.keys(binaries)) {
     if (key.includes("linux")) {
       await $`tar -czf ../../${key}.tar.gz *`.cwd(`dist/${key}/bin`)
@@ -175,7 +167,6 @@ if (Script.release) {
       await $`zip -r ../../${key}.zip *`.cwd(`dist/${key}/bin`)
     }
   }
-  await $`gh release upload v${Script.version} ./dist/*.zip ./dist/*.tar.gz --clobber --repo ${process.env.GH_REPO}`
 }
 
 export { binaries }
