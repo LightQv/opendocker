@@ -25,6 +25,14 @@ const ActiveView = z.discriminatedUnion("pane", [
 ])
 type ActiveView = z.infer<typeof ActiveView>
 
+const ContainerPort = z.object({
+  hostIp: z.string().optional().describe("Published host IP"),
+  privatePort: z.number().describe("Container port"),
+  publicPort: z.number().optional().describe("Published host port"),
+  type: z.string().describe("Port protocol"),
+})
+export type ContainerPort = z.infer<typeof ContainerPort>
+
 const Container = z.object({
   id: z.string().describe("Unique container identifier"),
   name: z.string().describe("Container name"),
@@ -32,6 +40,7 @@ const Container = z.object({
   service: z.string().optional().describe("Docker Compose service name"),
   composeWorkingDir: z.string().optional().describe("Docker Compose project working directory"),
   composeConfigFiles: z.array(z.string()).describe("Docker Compose config files"),
+  ports: z.array(ContainerPort).describe("Container port mappings"),
   state: z.string().describe("Container state (e.g. running, stopped)"),
   status: z.string().describe("Container status message"),
 })

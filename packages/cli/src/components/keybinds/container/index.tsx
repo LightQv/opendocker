@@ -10,6 +10,7 @@ import { useToast } from "@/ui/toast"
 import type { Config, ConfigItem } from "@/components/keybinds"
 import { DialogConfirm } from "@/ui/dialog-confirm"
 import { ContainerShell } from "@/lib/container-shell"
+import { canOpenContainerWebUi, getContainerWebUrl } from "@/util/container"
 
 export default function ContainerKeybinds() {
   const theme = useTheme().theme
@@ -46,8 +47,14 @@ export default function ContainerKeybinds() {
         { label: "remove", key: "resource_remove" },
       )
 
+      let insertAt = 1
       if (canOpenShell(container)) {
-        items.splice(1, 0, { label: getShellLabel(container), key: "container_shell" })
+        items.splice(insertAt, 0, { label: getShellLabel(container), key: "container_shell" })
+        insertAt += 1
+      }
+
+      if (canOpenContainerWebUi(container)) {
+        items.splice(insertAt, 0, { label: "open", key: "container_open" })
       }
 
       if (getComposeService(selected())) {
@@ -161,6 +168,27 @@ export default function ContainerKeybinds() {
     closeShellSessions([container])
   }
 
+  async function openBrowser(url: string) {
+    const command = process.platform === "darwin"
+      ? ["open", url]
+      : process.platform === "win32"
+        ? ["cmd", "/c", "start", "", url]
+        : ["xdg-open", url]
+
+    const proc = Bun.spawn(command, {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stderr).text(),
+    ])
+
+    if (exitCode !== 0) {
+      throw new Error(stderr.trim() || `Failed to open ${url}`)
+    }
+  }
+
   function stopProject(containers: Container[]) {
     closeShellSessions(containers)
 
@@ -264,6 +292,23 @@ export default function ContainerKeybinds() {
     }
 
     if (app.rightPanelFocused) return
+
+    if (keybind.match("container_open", key)) {
+      if (app.containerListMode !== "containers") return
+
+      const container = selected()
+      if (!canOpenContainerWebUi(container)) return
+
+      const url = getContainerWebUrl(container)
+      if (!url) return
+
+      toast.show({
+        variant: "info",
+        message: `Opening ${url}`,
+      })
+      openBrowser(url).catch(toast.error)
+      return
+    }
 
     if (keybind.match("container_start_stop", key)) {
       if (app.containerListMode === "projects") {
