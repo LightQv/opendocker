@@ -13,25 +13,34 @@ export function Dialog(
   const dimensions = useTerminalDimensions()
   const { theme } = useTheme()
   const renderer = useRenderer()
+  let dismiss = false
 
   return (
     <box
-      onMouseUp={async () => {
-        if (renderer.getSelection()) return
+      onMouseDown={() => {
+        dismiss = !!renderer.getSelection()
+      }}
+      onMouseUp={() => {
+        if (dismiss) {
+          dismiss = false
+          return
+        }
         props.onClose?.()
       }}
       width={dimensions().width}
       height={dimensions().height}
       alignItems="center"
-      justifyContent="center"
       position="absolute"
+      zIndex={3000}
+      paddingTop={dimensions().height / 4}
       left={0}
       top={0}
       backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
     >
       <box
         onMouseUp={async (e) => {
-          if (renderer.getSelection()) return
+          if (renderer.getSelection()?.getSelectedText()) return
+          dismiss = false
           e.stopPropagation()
         }}
         width={props.size === "large" ? 80 : 60}
