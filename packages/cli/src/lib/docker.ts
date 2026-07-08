@@ -1,4 +1,5 @@
 import http from "http"
+import { DockerV2 } from "./docker-v2"
 
 const DEFAULT_SOCKET = "/var/run/docker.sock"
 
@@ -41,14 +42,7 @@ export class Docker {
   }
 
   public static async getSocket(): Promise<string> {
-    try {
-      const res =
-        await Bun.$`docker context inspect --format '{{.Endpoints.docker.Host}}' | sed 's|unix://||'`.text()
-      return res.trim() || "/var/run/docker.sock"
-    } catch (error) {
-      console.error("Failed to get docker socket:", error)
-      return "/var/run/docker.sock"
-    }
+    return DockerV2.getSocket()
   }
 
   private request(path: string, method: string = "GET"): Promise<any> {

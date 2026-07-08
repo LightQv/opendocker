@@ -5,9 +5,6 @@
   "description": "A CLI tool for managing Docker",
   "type": "module",
   "private": true,
-  "bin": {
-    "opendocker": "bin/opendocker"
-  },
   "scripts": {
     "dev": "bun run --conditions=browser ./src/index.tsx",
     "build": "bun run scripts/build.ts"

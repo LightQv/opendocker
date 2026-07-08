@@ -12,6 +12,8 @@ export namespace DockerV2 {
   const FALLBACK_LOCAL_SOCKETS = [
     "/var/run/docker.sock",
     join(homedir(), ".docker", "run", "docker.sock"),
+    join(homedir(), ".colima", "default", "docker.sock"),
+    join(homedir(), ".orbstack", "run", "docker.sock"),
   ]
 
   const DockerConfigSchema = z.object({
