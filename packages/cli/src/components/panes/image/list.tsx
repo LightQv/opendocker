@@ -105,7 +105,7 @@ export default function List() {
             variant: "info",
             message: "Removing image",
           })
-          app.docker?.removeImage(image.id).catch(toast.error)
+          DockerV2.removeImage(image.id).catch(toast.error)
         }}
       />
     ))

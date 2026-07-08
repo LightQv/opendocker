@@ -6,7 +6,7 @@ import {
 } from "solid-js"
 import { ScrollBoxRenderable, TextAttributes } from "@opentui/core"
 import { useApplication } from "@/context/application"
-import { Docker, type ImageHistoryItem } from "@/lib/docker"
+import { DockerV2 } from "@/lib/docker-v2"
 import { Pane } from "@/ui/pane"
 import { useTheme } from "@/context/theme"
 
@@ -35,7 +35,7 @@ const HEADERS = {
 export default function History() {
   const app = useApplication()
   const theme = useTheme().theme
-  const [history, setHistory] = createSignal<ImageHistoryItem[]>([])
+  const [history, setHistory] = createSignal<DockerV2.ImageHistoryItem[]>([])
   const [scroll, setScroll] = createSignal<ScrollBoxRenderable>()
 
   createEffect(async () => {
@@ -46,8 +46,7 @@ export default function History() {
     }
 
     try {
-      const docker = Docker.getInstance()
-      const historyData = await docker.streamImageHistory(imageId)
+      const historyData = await DockerV2.getImageHistory(imageId)
       setHistory(historyData)
     } catch (err) {
       setHistory([])

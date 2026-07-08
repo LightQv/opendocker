@@ -1,11 +1,10 @@
 import type { JSX } from "solid-js"
 import { Toast } from "@/ui/toast"
-import { Docker } from "@/lib/docker"
 import { useApplication, type Container, type ContainerStats, type Image, type Volume } from "@/context/application"
 import Footer from "@/components/footer"
 import { useTheme } from "@/context/theme"
 import { RGBA } from "@opentui/core"
-import { createEffect, createSignal, Show, onCleanup, onMount } from "solid-js"
+import { createEffect, createSignal, Show, onCleanup } from "solid-js"
 import RightSidebar from "@/components/right-sidebar"
 import { useKV } from "@/context/kv"
 
@@ -60,10 +59,6 @@ export function BaseLayout({ children }: { children: JSX.Element }) {
   const [snapshotHydrated, setSnapshotHydrated] = createSignal(false)
   let snapshotSaveTimer: ReturnType<typeof setTimeout> | undefined
 
-  onMount(() => {
-    createDockerInstance()
-  })
-
   createEffect(() => {
     if (!kv.ready || snapshotHydrated()) return
 
@@ -95,11 +90,6 @@ export function BaseLayout({ children }: { children: JSX.Element }) {
   onCleanup(() => {
     if (snapshotSaveTimer) clearTimeout(snapshotSaveTimer)
   })
-
-  function createDockerInstance() {
-    const d = Docker.getInstance()
-    app.setDocker(d)
-  }
 
   function scheduleSnapshotSave() {
     if (app.containers.length === 0 && app.images.length === 0 && app.volumes.length === 0) return
