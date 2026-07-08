@@ -5,6 +5,7 @@ import {
     createSignal,
     For,
     Match,
+    on,
     onMount,
     Switch,
     onCleanup,
@@ -19,6 +20,8 @@ import { useKeybind } from '@/context/keybind';
 import { useDialog } from '@/ui/dialog';
 import { DialogConfirm } from '@/ui/dialog-confirm';
 import { useToast } from '@/ui/toast';
+import { DockerV2 } from '@/lib/docker-v2';
+import { applyVolumeUsage } from '@/util/docker-resources';
 
 export default function List() {
     const keybind = useKeybind();
@@ -26,9 +29,10 @@ export default function List() {
     const theme = useTheme().theme;
     const dialog = useDialog();
     const toast = useToast();
-    const [loaded, setLoaded] = createSignal<boolean>(false);
+    const [loaded, setLoaded] = createSignal<boolean>(true);
     const [active, setActive] = createSignal<boolean>(false);
     const maxDriverLength = () => Math.max(...app.volumes.map(v => v.driver.length), 0);
+    let refreshingVolumes = false;
 
     function validateActiveVolume(volumes: Array<Volume>, activeVolume: string | null) {
         if (!activeVolume) return volumes[0]?.name;
@@ -37,18 +41,31 @@ export default function List() {
     }
 
     async function volumePulse() {
-        const d = app.docker;
-        if (!d) return;
+        if (refreshingVolumes) return;
 
-        const fetchedVolumes = await d?.streamVolumes() || [];
-        app.setVolumes(fetchedVolumes);
+        refreshingVolumes = true;
 
-        const validActiveVolume = validateActiveVolume(fetchedVolumes, app.activeVolume);
-        if (validActiveVolume !== app.activeVolume) {
-            app.setActiveVolume(validActiveVolume);
+        try {
+            const volumes = await DockerV2.getVolumes().catch(() => undefined);
+            if (!volumes) return;
+
+            const fetchedVolumes = applyVolumeUsage(preserveUsage(volumes), app.containers);
+            app.setVolumes(fetchedVolumes);
+
+            const validActiveVolume = validateActiveVolume(fetchedVolumes, app.activeVolume);
+            if (validActiveVolume !== app.activeVolume) {
+                app.setActiveVolume(validActiveVolume);
+            }
+
+            setLoaded(true);
+        } finally {
+            refreshingVolumes = false;
         }
+    }
 
-        setLoaded(true);
+    function preserveUsage(volumes: Array<Volume>) {
+        const usedByName = new Map(app.volumes.map(volume => [volume.name, volume.used]));
+        return volumes.map(volume => ({ ...volume, used: usedByName.get(volume.name) ?? volume.used }));
     }
 
     onMount(() => {
@@ -144,6 +161,15 @@ export default function List() {
         }
     });
 
+    createEffect(on(
+        () => app.containers.map(container => `${container.id}:${(container.volumeNames ?? []).join(",")}`).join("|"),
+        () => {
+            if (app.volumes.length === 0) return;
+            app.setVolumes(applyVolumeUsage(app.volumes, app.containers));
+        },
+        { defer: true },
+    ));
+
     createEffect(() => {
         setActive(app.activePane === 'volumes');
     });
@@ -162,7 +188,7 @@ export default function List() {
                     <Show when={app.volumes.length === 0 && !loaded() && active()}>
                         <Spinner />
                     </Show>
-                    <Show when={loaded() || !active()}>
+                    <Show when={loaded() || app.volumes.length > 0 || !active()}>
                         <text fg={theme.textMuted}>
                             {app.volumes.length}
                         </text>

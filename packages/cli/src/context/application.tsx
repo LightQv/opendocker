@@ -36,10 +36,12 @@ export type ContainerPort = z.infer<typeof ContainerPort>
 const Container = z.object({
   id: z.string().describe("Unique container identifier"),
   name: z.string().describe("Container name"),
+  imageId: z.string().optional().describe("Image identifier used by this container"),
   project: z.string().describe("Docker Compose project or Standalone group"),
   service: z.string().optional().describe("Docker Compose service name"),
   composeWorkingDir: z.string().optional().describe("Docker Compose project working directory"),
   composeConfigFiles: z.array(z.string()).describe("Docker Compose config files"),
+  volumeNames: z.array(z.string()).optional().describe("Named volumes mounted by this container"),
   ports: z.array(ContainerPort).describe("Container port mappings"),
   state: z.string().describe("Container state (e.g. running, stopped)"),
   status: z.string().describe("Container status message"),

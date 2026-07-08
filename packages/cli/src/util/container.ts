@@ -1,3 +1,4 @@
+import { isIP } from "node:net"
 import type { Container, ContainerPort } from "@/context/application"
 
 const WEB_PORT_PRIORITY = [443, 8443, 9443, 80, 8080, 8000, 3000, 5000, 5173]
@@ -8,7 +9,11 @@ export type PublishedContainerPort = ContainerPort & {
 }
 
 function isPublishedTcpPort(port: ContainerPort): port is PublishedContainerPort {
-  return port.type.toLowerCase() === "tcp" && typeof port.publicPort === "number"
+  return port.type.toLowerCase() === "tcp" && isValidPort(port.privatePort) && isValidPort(port.publicPort)
+}
+
+function isValidPort(port: number | undefined): port is number {
+  return port !== undefined && Number.isInteger(port) && port > 0 && port <= 65535
 }
 
 function getPortPriority(port: PublishedContainerPort) {
@@ -22,10 +27,12 @@ function getPortPriority(port: PublishedContainerPort) {
 }
 
 function getHost(port: PublishedContainerPort) {
-  if (!port.hostIp || port.hostIp === "0.0.0.0" || port.hostIp === "::") return "localhost"
-  if (port.hostIp === "127.0.0.1" || port.hostIp === "::1") return "localhost"
-  if (port.hostIp.includes(":")) return `[${port.hostIp}]`
-  return port.hostIp
+  const hostIp = port.hostIp?.trim()
+  if (!hostIp || hostIp === "0.0.0.0" || hostIp === "::") return "localhost"
+  if (hostIp === "127.0.0.1" || hostIp === "::1") return "localhost"
+  if (isIP(hostIp) === 6) return `[${hostIp}]`
+  if (isIP(hostIp) === 4) return hostIp
+  return "localhost"
 }
 
 export function getContainerWebPort(container: Container | undefined): PublishedContainerPort | undefined {
@@ -44,12 +51,13 @@ export function getContainerWebUrl(container: Container | undefined): string | u
   const port = getContainerWebPort(container)
   if (!port) return undefined
 
-  const protocol = HTTPS_PORTS.has(port.publicPort) || HTTPS_PORTS.has(port.privatePort) ? "https" : "http"
-  return `${protocol}://${getHost(port)}:${port.publicPort}`
+  const protocol = HTTPS_PORTS.has(port.privatePort) ? "https" : "http"
+  const url = new URL(`${protocol}://${getHost(port)}`)
+  url.port = String(port.publicPort)
+  return url.toString().replace(/\/$/, "")
 }
 
 export function formatContainerWebPort(port: PublishedContainerPort | undefined): string | undefined {
   if (!port) return undefined
-  if (port.publicPort === port.privatePort) return String(port.publicPort)
   return `${port.publicPort}->${port.privatePort}`
 }

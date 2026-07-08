@@ -6,19 +6,23 @@ import {
   createSignal,
   For,
   Match,
+  on,
   onMount,
   Show,
   Switch,
   onCleanup,
 } from "solid-js"
 import { useApplication } from "@/context/application"
-import type { Container } from "@/context/application"
+import type { Container, ContainerStats } from "@/context/application"
 import { Pane } from "@/ui/pane"
 import { getColorForContainerState } from "@/util/colors"
 import { useTheme } from "@/context/theme"
 import { useKeybind } from "@/context/keybind"
 import { DockerV2 } from "@/lib/docker-v2"
 import { useDialog } from "@/ui/dialog"
+
+const CONTAINER_REFRESH_MS = 1000
+const STATS_REFRESH_MS = 2000
 
 export default function List() {
   const keybind = useKeybind()
@@ -51,11 +55,17 @@ export default function List() {
   })
   const maxStateLength = () => Math.max(...selectedProjectContainers().map(c => c.state.length), 0)
   const theme = useTheme().theme
-  let refreshing = false
+  let refreshingContainers = false
+  let statsAbortController: AbortController | undefined
+  let statsRefreshTimer: ReturnType<typeof setTimeout> | undefined
+  let backgroundStatsAbortController: AbortController | undefined
+  let backgroundStatsTimer: ReturnType<typeof setTimeout> | undefined
+  let backgroundStatsCursor = 0
+  let statsRequestId = 0
 
-  async function setup() {
-    if (refreshing) return
-    refreshing = true
+  async function refreshContainers() {
+    if (refreshingContainers) return
+    refreshingContainers = true
 
     try {
       const c = await DockerV2.getContainers()
@@ -73,26 +83,220 @@ export default function List() {
         app.setActiveContainer(activeId)
       }
 
-      const runningContainerIds = containers
-        .filter(container => container.state === "running")
-        .map(container => container.id)
-      app.setContainerStats(await DockerV2.getContainerStats(runningContainerIds))
+      pruneContainerStats(c)
     } finally {
-      refreshing = false
+      refreshingContainers = false
     }
   }
 
-  onMount(() => {
-    setup()
+  function getRunningContainerIds(containers = app.containers) {
+    return containers
+      .filter(container => container.state === "running")
+      .map(container => container.id)
+  }
 
-    const intervalId = setInterval(() => {
-      setup()
-    }, 1000)
+  function pruneContainerStats(containers = app.containers) {
+    const runningContainerIds = new Set(getRunningContainerIds(containers))
+    app.setContainerStats(filterStats(app.containerStats, runningContainerIds))
+  }
+
+  function filterStats(stats: Record<string, ContainerStats>, containerIds: Set<string>) {
+    const result: Record<string, ContainerStats> = {}
+
+    for (const [containerId, value] of Object.entries(stats)) {
+      if (!containerIds.has(containerId)) continue
+      result[containerId] = value
+    }
+
+    return result
+  }
+
+  function selectedContainer() {
+    if (!app.activeContainer) return undefined
+    return app.containers.find(container => container.id === app.activeContainer)
+  }
+
+  function selectedRunningContainerId() {
+    const selected = selectedContainer()
+    return selected?.state === "running" ? selected.id : undefined
+  }
+
+  function selectedStatsTargetIds() {
+    if (app.containerListMode === "projects") {
+      return selectedProjectContainers()
+        .filter(container => container.state === "running")
+        .map(container => container.id)
+    }
+
+    const selectedId = selectedRunningContainerId()
+    return selectedId ? [selectedId] : []
+  }
+
+  const statsTargetKey = createMemo(() => selectedStatsTargetIds().join(","))
+  const runningContainerKey = createMemo(() => getRunningContainerIds().join(","))
+
+  function mergeContainerStats(stats: Record<string, ContainerStats>) {
+    const runningContainerIds = new Set(getRunningContainerIds())
+    app.setContainerStats(filterStats({ ...app.containerStats, ...stats }, runningContainerIds))
+  }
+
+  function clearStatsRefreshTimer() {
+    if (!statsRefreshTimer) return
+    clearTimeout(statsRefreshTimer)
+    statsRefreshTimer = undefined
+  }
+
+  function abortStatsRefresh() {
+    statsAbortController?.abort()
+    statsAbortController = undefined
+  }
+
+  function clearBackgroundStatsTimer() {
+    if (!backgroundStatsTimer) return
+    clearTimeout(backgroundStatsTimer)
+    backgroundStatsTimer = undefined
+  }
+
+  function abortBackgroundStatsRefresh() {
+    backgroundStatsAbortController?.abort()
+    backgroundStatsAbortController = undefined
+  }
+
+  function getBackgroundStatsTargetIds() {
+    const selectedTargetIds = new Set(selectedStatsTargetIds())
+    const targetIds = getRunningContainerIds()
+      .filter(containerId => !selectedTargetIds.has(containerId))
+    const missingStatsIds = targetIds.filter(containerId => !app.containerStats[containerId])
+
+    return missingStatsIds.length > 0 ? missingStatsIds : targetIds
+  }
+
+  function hasMissingBackgroundStats() {
+    return getBackgroundStatsTargetIds().some(containerId => !app.containerStats[containerId])
+  }
+
+  function scheduleStatsRefresh() {
+    clearStatsRefreshTimer()
+    if (selectedStatsTargetIds().length === 0) return
+
+    statsRefreshTimer = setTimeout(() => {
+      refreshStatsNow()
+    }, STATS_REFRESH_MS)
+  }
+
+  function refreshStatsNow() {
+    clearStatsRefreshTimer()
+    clearBackgroundStatsTimer()
+    abortBackgroundStatsRefresh()
+    const requestId = ++statsRequestId
+    abortStatsRefresh()
+
+    const targetIds = selectedStatsTargetIds()
+    if (targetIds.length === 0) {
+      scheduleBackgroundStatsRefresh(0)
+      return
+    }
+
+    const controller = new AbortController()
+    statsAbortController = controller
+
+    DockerV2.getContainerStats(targetIds, controller.signal)
+      .then((stats) => {
+        if (controller.signal.aborted || requestId !== statsRequestId) return
+        mergeContainerStats(stats)
+      })
+      .catch(() => {
+        // Stats are best-effort; keep cached values visible on transient Docker API failures.
+      })
+      .finally(() => {
+        if (requestId !== statsRequestId) return
+        if (statsAbortController === controller) {
+          statsAbortController = undefined
+        }
+        scheduleStatsRefresh()
+        scheduleBackgroundStatsRefresh(0)
+      })
+  }
+
+  function scheduleBackgroundStatsRefresh(delay = STATS_REFRESH_MS) {
+    clearBackgroundStatsTimer()
+    if (getBackgroundStatsTargetIds().length === 0) return
+
+    backgroundStatsTimer = setTimeout(() => {
+      refreshBackgroundStats()
+    }, delay)
+  }
+
+  function refreshBackgroundStats() {
+    clearBackgroundStatsTimer()
+    if (statsAbortController) {
+      scheduleBackgroundStatsRefresh(500)
+      return
+    }
+
+    abortBackgroundStatsRefresh()
+    const targetIds = getBackgroundStatsTargetIds()
+    if (backgroundStatsCursor >= targetIds.length) {
+      backgroundStatsCursor = 0
+    }
+
+    const targetId = targetIds[backgroundStatsCursor]
+    backgroundStatsCursor = (backgroundStatsCursor + 1) % Math.max(targetIds.length, 1)
+    if (!targetId) return
+
+    const controller = new AbortController()
+    backgroundStatsAbortController = controller
+
+    DockerV2.getContainerStats([targetId], controller.signal)
+      .then((stats) => {
+        if (controller.signal.aborted) return
+        mergeContainerStats(stats)
+      })
+      .catch(() => {
+        // Stats are best-effort; background warming should never block navigation.
+      })
+      .finally(() => {
+        if (backgroundStatsAbortController === controller) {
+          backgroundStatsAbortController = undefined
+        }
+        if (!controller.signal.aborted) {
+          scheduleBackgroundStatsRefresh(hasMissingBackgroundStats() ? 0 : STATS_REFRESH_MS)
+        }
+      })
+  }
+
+  onMount(() => {
+    refreshContainers().then(() => refreshStatsNow())
+
+    const containerIntervalId = setInterval(() => {
+      refreshContainers()
+    }, CONTAINER_REFRESH_MS)
 
     onCleanup(() => {
-      clearInterval(intervalId)
+      clearInterval(containerIntervalId)
+      clearStatsRefreshTimer()
+      clearBackgroundStatsTimer()
+      statsRequestId += 1
+      abortStatsRefresh()
+      abortBackgroundStatsRefresh()
     })
   })
+
+  createEffect(on(
+    statsTargetKey,
+    () => {
+      refreshStatsNow()
+    },
+    { defer: true },
+  ))
+
+  createEffect(on(
+    runningContainerKey,
+    () => {
+      scheduleBackgroundStatsRefresh(0)
+    },
+    { defer: true },
+  ))
 
   function validateActiveContainer(containers: Array<Container>, activeId: string | null) {
     if (!activeId) return containers[0]?.id ?? null
@@ -126,6 +330,7 @@ export default function List() {
     app.setActiveContainerProject(project)
     const container = app.containers.find(container => container.project === project)
     app.setActiveContainer(container?.id ?? null)
+    refreshStatsNow()
   }
 
   function enterProject() {

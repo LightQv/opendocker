@@ -172,7 +172,7 @@ export default function ContainerKeybinds() {
     const command = process.platform === "darwin"
       ? ["open", url]
       : process.platform === "win32"
-        ? ["cmd", "/c", "start", "", url]
+        ? ["rundll32", "url.dll,FileProtocolHandler", url]
         : ["xdg-open", url]
 
     const proc = Bun.spawn(command, {
